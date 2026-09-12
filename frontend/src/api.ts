@@ -13,10 +13,12 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
-export type Teacher = { id: string; nama: string; nip: string; mata_pelajaran: string; updated_at: string };
+export type Teacher = { id: string; nama: string; nip: string; mata_pelajaran: string; photo_path: string; updated_at: string };
 export type Student = { id: string; nama: string; kelas: number; created_at: string };
 export type Category = { id: string; nama: string; urutan: number; is_default: boolean };
 export type Grade = { id: string; student_id: string; category_id: string; nilai: number; updated_at: string };
+export type Attendance = { id: string; student_id: string; tanggal: string; status: "hadir" | "sakit" | "izin" | "alpa"; updated_at: string };
+export type AttendanceSummary = Record<string, { hadir: number; sakit: number; izin: number; alpa: number; total: number }>;
 export type Stats = { total_students: number; kelas_aktif: number; total_grades: number; total_categories: number };
 
 export const api = {
@@ -52,4 +54,26 @@ export const api = {
   deleteGrade: (id: string) => req<{ ok: true }>(`/grades/${id}`, { method: "DELETE" }),
 
   getStats: () => req<Stats>("/stats"),
+
+  // Attendance
+  listAttendance: (params: { kelas?: number; tanggal?: string; student_id?: string }) => {
+    const q = new URLSearchParams();
+    if (params.kelas !== undefined) q.append("kelas", String(params.kelas));
+    if (params.tanggal) q.append("tanggal", params.tanggal);
+    if (params.student_id) q.append("student_id", params.student_id);
+    const s = q.toString();
+    return req<Attendance[]>(`/attendance${s ? `?${s}` : ""}`);
+  },
+  saveAttendance: (data: { student_id: string; tanggal: string; status: string }) =>
+    req<Attendance>("/attendance", { method: "POST", body: JSON.stringify(data) }),
+  attendanceSummary: (kelas?: number) => {
+    const s = kelas !== undefined ? `?kelas=${kelas}` : "";
+    return req<AttendanceSummary>(`/attendance/summary${s}`);
+  },
+
+  // Teacher photo
+  fileUrl: (path: string) => (path ? `${BASE}/api/files/${path}` : ""),
+  removeTeacherPhoto: () => req<Teacher>("/teacher/photo", { method: "DELETE" }),
 };
+
+export const BACKEND_URL = BASE;

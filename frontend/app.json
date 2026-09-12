@@ -9,14 +9,18 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.reportcard.akpck3"
+      "bundleIdentifier": "com.emergent.reportcard.akpck3",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Pilih foto profil guru dari galeri"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.emergent.reportcard.akpck3"
+      "package": "com.emergent.reportcard.akpck3",
+      "permissions": ["READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",

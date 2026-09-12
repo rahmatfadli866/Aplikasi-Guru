@@ -48,6 +48,10 @@ export default function RekapScreen() {
     queryFn: () => api.listGrades({ kelas }),
   });
   const teacherQ = useQuery({ queryKey: ["teacher"], queryFn: api.getTeacher });
+  const attSumQ = useQuery({
+    queryKey: ["attendance", "summary", kelas],
+    queryFn: () => api.attendanceSummary(kelas),
+  });
 
   const categories = catsQ.data || [];
   const students = studentsQ.data || [];
@@ -177,11 +181,32 @@ export default function RekapScreen() {
                 const isPass = r.avg > 75;
                 const bgAvg = isPass ? colors.successSoft : r.count === 0 ? colors.surfaceTertiary : colors.errorSoft;
                 const fgAvg = isPass ? colors.success : r.count === 0 ? colors.muted : colors.error;
+                const att = attSumQ.data?.[r.student.id];
                 return (
                   <View key={r.student.id} style={styles.tblRow}>
                     <View style={[styles.cell, styles.nameCell, { width: COL_NAME_W }]}>
-                      <Text style={styles.rowNo}>{idx + 1}.</Text>
-                      <Text style={styles.rowName} numberOfLines={2}>{r.student.nama}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.rowNo}>{idx + 1}.</Text>
+                        <Text style={styles.rowName} numberOfLines={2}>{r.student.nama}</Text>
+                      </View>
+                      {att ? (
+                        <View style={styles.attRow} testID={`att-${r.student.id}`}>
+                          <View style={[styles.attChip, { backgroundColor: colors.successSoft }]}>
+                            <Text style={[styles.attTxt, { color: colors.success }]}>H {att.hadir}</Text>
+                          </View>
+                          <View style={[styles.attChip, { backgroundColor: colors.warningSoft }]}>
+                            <Text style={[styles.attTxt, { color: colors.warning }]}>S {att.sakit}</Text>
+                          </View>
+                          <View style={[styles.attChip, { backgroundColor: "#DBEAFE" }]}>
+                            <Text style={[styles.attTxt, { color: colors.info }]}>I {att.izin}</Text>
+                          </View>
+                          <View style={[styles.attChip, { backgroundColor: colors.errorSoft }]}>
+                            <Text style={[styles.attTxt, { color: colors.error }]}>A {att.alpa}</Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={styles.attEmpty}>Belum ada presensi</Text>
+                      )}
                     </View>
                     {categories.map((c, ci) => {
                       const v = r.values[ci];
@@ -489,7 +514,11 @@ const useStyles = makeStyles((colors) => ({
   },
   headerCell: { backgroundColor: colors.brandSecondary },
   nameHeaderCell: { backgroundColor: colors.brandSecondary, alignItems: "flex-start" },
-  nameCell: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "stretch", justifyContent: "flex-start" },
+  nameCell: { alignSelf: "stretch", justifyContent: "center", alignItems: "flex-start", gap: 6 },
+  attRow: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  attChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  attTxt: { fontSize: 10, fontWeight: "700" },
+  attEmpty: { fontSize: 10, color: colors.muted, fontStyle: "italic" },
   hCellTxt: { fontSize: 12, fontWeight: "700", color: colors.onBrandSecondary, textAlign: "center" },
   rowNo: { fontSize: 12, color: colors.muted, fontWeight: "700" },
   rowName: { fontSize: 13, fontWeight: "600", color: colors.onSurface, flexShrink: 1 },

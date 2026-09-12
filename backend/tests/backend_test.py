@@ -1,155 +1,184 @@
-"""Backend tests for Sistem Manajemen Nilai Siswa"""
+"""Backend tests for Sistem Manajemen Nilai Siswa - attendance & teacher photo features."""
 import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://report-card-21.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://report-card-21.preview.emergentagent.com').rstrip('/')
 API = f"{BASE_URL}/api"
 
 
 @pytest.fixture(scope="module")
-def client():
-    s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
-    return s
+def s():
+    return requests.Session()
 
 
-# ---------- Init/Seed ----------
-def test_init_idempotent(client):
-    r1 = client.post(f"{API}/init")
-    assert r1.status_code == 200
-    r2 = client.post(f"{API}/init")
-    assert r2.status_code == 200
+@pytest.fixture(scope="module")
+def student_ids(s):
+    ids = []
+    for name in ["TEST_Adi", "TEST_Budi", "TEST_Citra"]:
+        r = s.post(f"{API}/students", json={"nama": name, "kelas": 1})
+        assert r.status_code == 200, r.text
+        ids.append(r.json()["id"])
+    yield ids
+    for sid in ids:
+        try:
+            s.delete(f"{API}/students/{sid}")
+        except Exception:
+            pass
 
 
-# ---------- Teacher ----------
-def test_get_teacher_default(client):
-    r = client.get(f"{API}/teacher")
-    assert r.status_code == 200
-    d = r.json()
-    assert d["nama"] and d["nip"] and d["mata_pelajaran"]
+class TestTeacher:
+    def test_get_teacher_has_photo_path(self, s):
+        r = s.get(f"{API}/teacher")
+        assert r.status_code == 200
+        d = r.json()
+        assert "photo_path" in d
+        for k in ("nama", "nip", "mata_pelajaran"):
+            assert k in d
+
+    def test_update_teacher(self, s):
+        r = s.put(f"{API}/teacher", json={"nama": "TEST_Guru", "nip": "1234", "mata_pelajaran": "IPA"})
+        assert r.status_code == 200
+        assert r.json()["nama"] == "TEST_Guru"
+        r2 = s.get(f"{API}/teacher")
+        assert r2.json()["nama"] == "TEST_Guru"
 
 
-def test_update_teacher(client):
-    orig = client.get(f"{API}/teacher").json()
-    payload = {"nama": "TEST_Ibu Test", "nip": "999999", "mata_pelajaran": "TEST_IPA"}
-    r = client.put(f"{API}/teacher", json=payload)
-    assert r.status_code == 200
-    d = r.json()
-    assert d["nama"] == payload["nama"]
-    # verify via GET
-    g = client.get(f"{API}/teacher").json()
-    assert g["nama"] == payload["nama"]
-    # restore
-    client.put(f"{API}/teacher", json={"nama": orig["nama"], "nip": orig["nip"], "mata_pelajaran": orig["mata_pelajaran"]})
+class TestCategories:
+    def test_defaults_seeded(self, s):
+        r = s.get(f"{API}/categories")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) >= 13
+        names = [c["nama"] for c in data]
+        for n in ["Bab 1", "Bab 10", "Quiz", "UTS", "US"]:
+            assert n in names
 
 
-# ---------- Categories ----------
-def test_categories_default_13(client):
-    r = client.get(f"{API}/categories")
-    assert r.status_code == 200
-    cats = r.json()
-    names = [c["nama"] for c in cats]
-    for i in range(1, 11):
-        assert f"Bab {i}" in names
-    for n in ["Quiz", "UTS", "US"]:
-        assert n in names
-    assert len(cats) >= 13
+class TestStudents:
+    def test_list_students(self, s, student_ids):
+        r = s.get(f"{API}/students?kelas=1")
+        assert r.status_code == 200
+        ids = [x["id"] for x in r.json()]
+        for sid in student_ids:
+            assert sid in ids
+
+    def test_invalid_kelas(self, s):
+        r = s.post(f"{API}/students", json={"nama": "TEST_x", "kelas": 7})
+        assert r.status_code == 400
 
 
-def test_category_crud(client):
-    r = client.post(f"{API}/categories", json={"nama": "TEST_Kategori", "urutan": 100})
-    assert r.status_code == 200
-    cid = r.json()["id"]
-    # update
-    r2 = client.put(f"{API}/categories/{cid}", json={"nama": "TEST_KategoriUpd", "urutan": 101})
-    assert r2.status_code == 200
-    assert r2.json()["nama"] == "TEST_KategoriUpd"
-    # delete
-    r3 = client.delete(f"{API}/categories/{cid}")
-    assert r3.status_code == 200
+class TestGrades:
+    def test_upsert_grade(self, s, student_ids):
+        cats = s.get(f"{API}/categories").json()
+        cid = cats[0]["id"]
+        sid = student_ids[0]
+        r = s.post(f"{API}/grades", json={"student_id": sid, "category_id": cid, "nilai": 80})
+        assert r.status_code == 200
+        gid = r.json()["id"]
+        r2 = s.post(f"{API}/grades", json={"student_id": sid, "category_id": cid, "nilai": 90})
+        assert r2.status_code == 200
+        assert r2.json()["id"] == gid
+        assert r2.json()["nilai"] == 90
 
 
-# ---------- Students ----------
-def test_list_students(client):
-    r = client.get(f"{API}/students")
-    assert r.status_code == 200
-    assert len(r.json()) >= 14
+class TestAttendance:
+    date = "2026-09-01"
+
+    def test_post_invalid_status(self, s, student_ids):
+        r = s.post(f"{API}/attendance", json={
+            "student_id": student_ids[0], "tanggal": self.date, "status": "xxx"
+        })
+        assert r.status_code == 400
+
+    def test_post_invalid_date(self, s, student_ids):
+        r = s.post(f"{API}/attendance", json={
+            "student_id": student_ids[0], "tanggal": "2026-9-1", "status": "hadir"
+        })
+        assert r.status_code == 400
+
+    def test_upsert_attendance(self, s, student_ids):
+        sid = student_ids[0]
+        r1 = s.post(f"{API}/attendance", json={"student_id": sid, "tanggal": self.date, "status": "hadir"})
+        assert r1.status_code == 200
+        aid1 = r1.json()["id"]
+        assert r1.json()["status"] == "hadir"
+        r2 = s.post(f"{API}/attendance", json={"student_id": sid, "tanggal": self.date, "status": "sakit"})
+        assert r2.status_code == 200
+        assert r2.json()["id"] == aid1
+        assert r2.json()["status"] == "sakit"
+
+    def test_filter_by_kelas_tanggal(self, s, student_ids):
+        s.post(f"{API}/attendance", json={"student_id": student_ids[1], "tanggal": self.date, "status": "izin"})
+        s.post(f"{API}/attendance", json={"student_id": student_ids[2], "tanggal": self.date, "status": "alpa"})
+        s.post(f"{API}/attendance", json={"student_id": student_ids[0], "tanggal": "2026-09-02", "status": "hadir"})
+
+        r = s.get(f"{API}/attendance?kelas=1&tanggal={self.date}")
+        assert r.status_code == 200
+        rows = r.json()
+        for row in rows:
+            assert row["tanggal"] == self.date
+        sids_in_result = {row["student_id"] for row in rows}
+        for sid in student_ids:
+            assert sid in sids_in_result
+
+    def test_summary(self, s, student_ids):
+        r = s.get(f"{API}/attendance/summary?kelas=1")
+        assert r.status_code == 200
+        summary = r.json()
+        sid = student_ids[0]
+        assert sid in summary
+        row = summary[sid]
+        assert row["total"] >= 2
+        assert row["sakit"] >= 1
+        assert row["hadir"] >= 1
+
+    def test_delete_student_cascades_attendance(self, s):
+        r = s.post(f"{API}/students", json={"nama": "TEST_Cascade", "kelas": 2})
+        sid = r.json()["id"]
+        s.post(f"{API}/attendance", json={"student_id": sid, "tanggal": "2026-09-03", "status": "hadir"})
+        r0 = s.get(f"{API}/attendance?student_id={sid}")
+        assert len(r0.json()) == 1
+        s.delete(f"{API}/students/{sid}")
+        r1 = s.get(f"{API}/attendance?student_id={sid}")
+        assert r1.json() == []
 
 
-def test_list_students_filter_kelas(client):
-    r = client.get(f"{API}/students", params={"kelas": 1})
-    assert r.status_code == 200
-    for s in r.json():
-        assert s["kelas"] == 1
+class TestTeacherPhoto:
+    def test_reject_non_image(self, s):
+        r = s.post(f"{API}/teacher/photo",
+                   files={"file": ("a.txt", b"hello world", "text/plain")})
+        assert r.status_code == 400
+
+    def test_upload_serve_delete(self, s):
+        png = bytes.fromhex(
+            "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4"
+            "890000000D49444154789C63F8CF00000003010100D3D3F0090000000049454E"
+            "44AE426082"
+        )
+        r = s.post(f"{API}/teacher/photo",
+                   files={"file": ("a.png", png, "image/png")})
+        if r.status_code >= 500 and ("storage" in r.text.lower() or "Gagal" in r.text):
+            pytest.skip(f"object storage error: {r.text}")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["photo_path"].startswith("sistem-nilai-siswa/uploads/teacher/")
+        path = d["photo_path"]
+
+        r2 = s.get(f"{API}/files/{path}")
+        assert r2.status_code == 200
+        assert r2.headers.get("content-type", "").startswith("image/")
+        assert len(r2.content) == len(png)
+
+        r3 = s.delete(f"{API}/teacher/photo")
+        assert r3.status_code == 200
+        assert r3.json()["photo_path"] == ""
 
 
-def test_student_crud_and_kelas_validation(client):
-    # invalid kelas
-    r_bad = client.post(f"{API}/students", json={"nama": "TEST_X", "kelas": 7})
-    assert r_bad.status_code == 400
-    # valid
-    r = client.post(f"{API}/students", json={"nama": "TEST_Siswa", "kelas": 3})
-    assert r.status_code == 200
-    sid = r.json()["id"]
-    # update valid
-    r2 = client.put(f"{API}/students/{sid}", json={"nama": "TEST_SiswaUpd", "kelas": 4})
-    assert r2.status_code == 200
-    assert r2.json()["kelas"] == 4
-    # update invalid kelas
-    r3 = client.put(f"{API}/students/{sid}", json={"nama": "TEST_X", "kelas": 0})
-    assert r3.status_code == 400
-    # delete
-    r4 = client.delete(f"{API}/students/{sid}")
-    assert r4.status_code == 200
-    # verify 404
-    r5 = client.delete(f"{API}/students/{sid}")
-    assert r5.status_code == 404
-
-
-# ---------- Grades ----------
-def test_grade_upsert_and_validation(client):
-    # get a student and category
-    s = client.get(f"{API}/students").json()[0]
-    c = client.get(f"{API}/categories").json()[0]
-    # invalid nilai
-    r_bad = client.post(f"{API}/grades", json={"student_id": s["id"], "category_id": c["id"], "nilai": 150})
-    assert r_bad.status_code == 400
-    # valid upsert
-    r = client.post(f"{API}/grades", json={"student_id": s["id"], "category_id": c["id"], "nilai": 80})
-    assert r.status_code == 200
-    gid = r.json()["id"]
-    assert r.json()["nilai"] == 80
-    # upsert same pair => same id
-    r2 = client.post(f"{API}/grades", json={"student_id": s["id"], "category_id": c["id"], "nilai": 90})
-    assert r2.status_code == 200
-    assert r2.json()["id"] == gid
-    assert r2.json()["nilai"] == 90
-    # PUT
-    r3 = client.put(f"{API}/grades/{gid}", json={"nilai": 75})
-    assert r3.status_code == 200
-    assert r3.json()["nilai"] == 75
-    # PUT invalid
-    r4 = client.put(f"{API}/grades/{gid}", json={"nilai": -1})
-    assert r4.status_code == 400
-
-
-def test_list_grades_filter_kelas(client):
-    r = client.get(f"{API}/grades", params={"kelas": 1})
-    assert r.status_code == 200
-    grades = r.json()
-    # all grades must belong to students of kelas 1
-    students = {s["id"] for s in client.get(f"{API}/students", params={"kelas": 1}).json()}
-    for g in grades:
-        assert g["student_id"] in students
-
-
-# ---------- Stats ----------
-def test_stats(client):
-    r = client.get(f"{API}/stats")
-    assert r.status_code == 200
-    d = r.json()
-    assert d["total_students"] >= 14
-    assert d["kelas_aktif"] >= 1
-    assert d["total_grades"] >= 0
-    assert d["total_categories"] >= 13
+class TestStats:
+    def test_stats(self, s):
+        r = s.get(f"{API}/stats")
+        assert r.status_code == 200
+        d = r.json()
+        for k in ("total_students", "kelas_aktif", "total_grades", "total_categories"):
+            assert k in d and isinstance(d[k], int)

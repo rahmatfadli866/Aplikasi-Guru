@@ -40,7 +40,16 @@ export default function HomeScreen() {
           <View style={styles.heroContent}>
             <View style={styles.heroTopRow}>
               <View style={styles.avatar}>
-                <Icon name="account-tie" size={36} color="#FFFFFF" />
+                {teacher?.photo_path ? (
+                  <Image
+                    source={{ uri: api.fileUrl(teacher.photo_path) }}
+                    style={styles.avatarImg}
+                    contentFit="cover"
+                    testID="teacher-photo"
+                  />
+                ) : (
+                  <Icon name="account-tie" size={36} color="#FFFFFF" />
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.heroLabel}>Selamat Datang</Text>
@@ -116,6 +125,21 @@ export default function HomeScreen() {
         </View>
 
         <Pressable
+          testID="shortcut-kehadiran"
+          style={styles.masterCard}
+          onPress={() => router.push("/kehadiran")}
+        >
+          <View style={[styles.statIcon, { backgroundColor: colors.successSoft }]}>
+            <Icon name="calendar-check" size={22} color={colors.success} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.masterTitle}>Catatan Kehadiran</Text>
+            <Text style={styles.masterSub}>Presensi harian siswa</Text>
+          </View>
+          <Icon name="chevron-right" size={22} color={colors.muted} />
+        </Pressable>
+
+        <Pressable
           testID="shortcut-master"
           style={styles.masterCard}
           onPress={() => router.push("/master")}
@@ -151,7 +175,9 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: "rgba(255,255,255,0.35)",
+    overflow: "hidden",
   },
+  avatarImg: { width: "100%", height: "100%" },
   heroLabel: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "500" },
   heroName: { color: "#FFFFFF", fontSize: 20, fontWeight: "700", marginTop: 2 },
   heroDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.25)", marginVertical: 16 },

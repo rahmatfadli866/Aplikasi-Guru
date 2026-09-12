@@ -1,9 +1,11 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Response
+from fastapi.concurrency import run_in_threadpool
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import requests
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -19,6 +21,56 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Object Storage
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = os.environ.get("APP_NAME", "sistem-nilai-siswa")
+_storage_key: Optional[str] = None
+
+
+def init_storage() -> str:
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str) -> tuple[bytes, str]:
+    global _storage_key
+    key = init_storage()
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key},
+        timeout=60,
+    )
+    if resp.status_code == 503:
+        # stale key
+        _storage_key = None
+        key = init_storage()
+        resp = requests.get(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key},
+            timeout=60,
+        )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
@@ -31,6 +83,7 @@ class Teacher(BaseModel):
     nama: str = ""
     nip: str = ""
     mata_pelajaran: str = ""
+    photo_path: str = ""  # stored object path, empty if none
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -80,6 +133,23 @@ class GradeCreate(BaseModel):
 
 class GradeUpdate(BaseModel):
     nilai: float
+
+
+ATTENDANCE_STATUSES = {"hadir", "sakit", "izin", "alpa"}
+
+
+class Attendance(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    student_id: str
+    tanggal: str  # YYYY-MM-DD
+    status: str  # hadir | sakit | izin | alpa
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class AttendanceCreate(BaseModel):
+    student_id: str
+    tanggal: str
+    status: str
 
 
 # ============================================================
@@ -133,6 +203,75 @@ async def update_teacher(data: TeacherUpdate):
     return Teacher(**updated)
 
 
+@api_router.post("/teacher/photo", response_model=Teacher)
+async def upload_teacher_photo(file: UploadFile = File(...)):
+    if not EMERGENT_KEY:
+        raise HTTPException(500, "Object storage tidak tersedia")
+    content_type = file.content_type or "image/jpeg"
+    if not content_type.startswith("image/"):
+        raise HTTPException(400, "File harus berupa gambar")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Ukuran maksimum 5MB")
+    # Ensure teacher exists
+    doc = await db.teacher.find_one({}, PROJ)
+    if not doc:
+        obj = Teacher()
+        await db.teacher.insert_one(obj.model_dump())
+        doc = obj.model_dump()
+
+    ext = "jpg"
+    if "/" in content_type:
+        candidate = content_type.split("/")[-1].split(";")[0].strip().lower()
+        if candidate in {"jpeg", "jpg", "png", "webp", "heic", "heif"}:
+            ext = "jpg" if candidate == "jpeg" else candidate
+    filename = f"{APP_NAME}/uploads/teacher/{uuid.uuid4()}.{ext}"
+
+    try:
+        await run_in_threadpool(put_object, filename, data, content_type)
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else 500
+        if code == 402:
+            raise HTTPException(402, "Kuota penyimpanan habis. Silakan hubungi admin.")
+        raise HTTPException(500, f"Gagal mengunggah foto ({code})")
+    except Exception as e:
+        raise HTTPException(500, f"Gagal mengunggah foto: {e}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.teacher.update_one(
+        {"id": doc["id"]},
+        {"$set": {"photo_path": filename, "updated_at": now}},
+    )
+    updated = await db.teacher.find_one({"id": doc["id"]}, PROJ)
+    return Teacher(**updated)
+
+
+@api_router.delete("/teacher/photo", response_model=Teacher)
+async def remove_teacher_photo():
+    doc = await db.teacher.find_one({}, PROJ)
+    if not doc:
+        raise HTTPException(404, "Profil guru tidak ditemukan")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.teacher.update_one(
+        {"id": doc["id"]},
+        {"$set": {"photo_path": "", "updated_at": now}},
+    )
+    updated = await db.teacher.find_one({"id": doc["id"]}, PROJ)
+    return Teacher(**updated)
+
+
+@api_router.get("/files/{path:path}")
+async def get_file(path: str):
+    try:
+        data, ctype = await run_in_threadpool(get_object, path)
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else 500
+        raise HTTPException(404 if code >= 500 else code, "File tidak ditemukan")
+    except Exception:
+        raise HTTPException(404, "File tidak ditemukan")
+    return Response(content=data, media_type=ctype, headers={"Cache-Control": "public, max-age=3600"})
+
+
 # ============================================================
 # Routes: Students
 # ============================================================
@@ -169,6 +308,7 @@ async def update_student(sid: str, data: StudentCreate):
 @api_router.delete("/students/{sid}")
 async def delete_student(sid: str):
     await db.grades.delete_many({"student_id": sid})
+    await db.attendance.delete_many({"student_id": sid})
     res = await db.students.delete_one({"id": sid})
     if res.deleted_count == 0:
         raise HTTPException(404, "Siswa tidak ditemukan")
@@ -273,6 +413,71 @@ async def delete_grade(gid: str):
     if res.deleted_count == 0:
         raise HTTPException(404, "Nilai tidak ditemukan")
     return {"ok": True}
+
+
+# ============================================================
+# Routes: Attendance
+# ============================================================
+@api_router.get("/attendance", response_model=List[Attendance])
+async def list_attendance(kelas: Optional[int] = None, tanggal: Optional[str] = None,
+                          student_id: Optional[str] = None):
+    q: dict = {}
+    if student_id:
+        q["student_id"] = student_id
+    if kelas is not None:
+        student_docs = await db.students.find({"kelas": kelas}, PROJ).to_list(2000)
+        ids = [s["id"] for s in student_docs]
+        existing = q.get("student_id")
+        if isinstance(existing, str) and existing not in ids:
+            return []
+        q["student_id"] = existing if isinstance(existing, str) else {"$in": ids}
+    if tanggal:
+        q["tanggal"] = tanggal
+    docs = await db.attendance.find(q, PROJ).to_list(20000)
+    return [Attendance(**d) for d in docs]
+
+
+@api_router.post("/attendance", response_model=Attendance)
+async def upsert_attendance(data: AttendanceCreate):
+    status = data.status.lower().strip()
+    if status not in ATTENDANCE_STATUSES:
+        raise HTTPException(400, "Status tidak valid")
+    if not data.tanggal or len(data.tanggal) != 10:
+        raise HTTPException(400, "Tanggal harus format YYYY-MM-DD")
+    existing = await db.attendance.find_one(
+        {"student_id": data.student_id, "tanggal": data.tanggal}, PROJ
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    if existing:
+        await db.attendance.update_one(
+            {"id": existing["id"]},
+            {"$set": {"status": status, "updated_at": now}},
+        )
+        doc = await db.attendance.find_one({"id": existing["id"]}, PROJ)
+        return Attendance(**doc)
+    obj = Attendance(student_id=data.student_id, tanggal=data.tanggal, status=status)
+    await db.attendance.insert_one(obj.model_dump())
+    return obj
+
+
+@api_router.get("/attendance/summary")
+async def attendance_summary(kelas: Optional[int] = None):
+    q: dict = {}
+    if kelas is not None:
+        student_docs = await db.students.find({"kelas": kelas}, PROJ).to_list(2000)
+        ids = [s["id"] for s in student_docs]
+        q["student_id"] = {"$in": ids}
+    docs = await db.attendance.find(q, PROJ).to_list(50000)
+    # Aggregate per student
+    per_student: dict = {}
+    for d in docs:
+        sid = d["student_id"]
+        row = per_student.setdefault(sid, {"hadir": 0, "sakit": 0, "izin": 0, "alpa": 0, "total": 0})
+        st = d.get("status")
+        if st in row:
+            row[st] += 1
+            row["total"] += 1
+    return per_student
 
 
 # ============================================================

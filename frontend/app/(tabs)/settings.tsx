@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -13,7 +17,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
-import { api } from "@/src/api";
+import { api, BACKEND_URL } from "@/src/api";
 import { useToast } from "@/src/components/toast";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -47,6 +51,67 @@ export default function SettingsScreen() {
     onError: (e: any) => toast.show(e.message || "Gagal menyimpan", "error"),
   });
 
+  const [uploading, setUploading] = useState(false);
+  const teacher = teacherQ.data;
+  const photoUri = teacher?.photo_path ? api.fileUrl(teacher.photo_path) : "";
+
+  const pickPhoto = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        if (!perm.canAskAgain) {
+          toast.show("Izin galeri ditolak. Buka Pengaturan.", "error");
+          Linking.openSettings();
+        } else {
+          toast.show("Izin galeri diperlukan", "error");
+        }
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      setUploading(true);
+
+      const form = new FormData();
+      const name = asset.fileName || `photo.${asset.mimeType?.split("/")[1] || "jpg"}`;
+      const type = asset.mimeType || "image/jpeg";
+      if (Platform.OS === "web") {
+        const blob = await (await fetch(asset.uri)).blob();
+        form.append("file", blob, name);
+      } else {
+        form.append("file", { uri: asset.uri, name, type } as any);
+      }
+      const resp = await fetch(`${BACKEND_URL}/api/teacher/photo`, {
+        method: "POST",
+        body: form as any,
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        throw new Error(`${resp.status}: ${t || resp.statusText}`);
+      }
+      toast.show("Foto profil diperbarui", "success");
+      qc.invalidateQueries({ queryKey: ["teacher"] });
+    } catch (e: any) {
+      toast.show(e?.message || "Gagal mengunggah foto", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeMut = useMutation({
+    mutationFn: () => api.removeTeacherPhoto(),
+    onSuccess: () => {
+      toast.show("Foto profil dihapus", "success");
+      qc.invalidateQueries({ queryKey: ["teacher"] });
+    },
+    onError: (e: any) => toast.show(e.message || "Gagal", "error"),
+  });
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -61,6 +126,45 @@ export default function SettingsScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.section}>PROFIL GURU</Text>
+          <View style={styles.photoWrap}>
+            <Pressable
+              testID="btn-pick-photo"
+              onPress={pickPhoto}
+              style={styles.photoAvatar}
+              disabled={uploading}
+            >
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.photoImg} contentFit="cover" />
+              ) : (
+                <Icon name="account" size={54} color={colors.brandPrimary} />
+              )}
+              <View style={styles.photoBadge}>
+                {uploading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Icon name="camera" size={16} color="#FFFFFF" />
+                )}
+              </View>
+            </Pressable>
+            <View style={styles.photoActions}>
+              <Pressable testID="btn-photo-change" onPress={pickPhoto} disabled={uploading}>
+                <Text style={styles.photoLink}>
+                  {photoUri ? "Ganti Foto Profil" : "Unggah Foto Profil"}
+                </Text>
+              </Pressable>
+              {!!photoUri && (
+                <Pressable
+                  testID="btn-photo-remove"
+                  onPress={() => removeMut.mutate()}
+                  disabled={removeMut.isPending}
+                >
+                  <Text style={[styles.photoLink, { color: colors.error, marginTop: 6 }]}>
+                    Hapus Foto
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
           <View style={styles.card}>
             <Field label="Nama Lengkap" value={nama} onChange={setNama} placeholder="cth. Ibu Ratna Sari, S.Pd" testID="in-nama" />
             <View style={styles.sep} />
@@ -174,6 +278,24 @@ const useStyles = makeStyles((colors) => ({
     fontSize: 11, fontWeight: "700", color: colors.muted, letterSpacing: 0.6,
     marginTop: 16, marginBottom: 8, paddingHorizontal: 4,
   },
+  photoWrap: {
+    flexDirection: "row", alignItems: "center", gap: 16,
+    backgroundColor: colors.surfaceSecondary, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: colors.border, marginBottom: 12,
+  },
+  photoAvatar: {
+    width: 84, height: 84, borderRadius: 42,
+    backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center",
+    overflow: "hidden", position: "relative",
+  },
+  photoImg: { width: "100%", height: "100%" },
+  photoBadge: {
+    position: "absolute", right: 0, bottom: 0, width: 26, height: 26, borderRadius: 13,
+    backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: colors.surfaceSecondary,
+  },
+  photoActions: { flex: 1 },
+  photoLink: { color: colors.brandPrimary, fontWeight: "700", fontSize: 14 },
   card: {
     backgroundColor: colors.surfaceSecondary,
     borderRadius: 14, borderWidth: 1, borderColor: colors.border,
