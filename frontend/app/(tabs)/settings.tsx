@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -17,7 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
-import { api, BACKEND_URL } from "@/src/api";
+import { api } from "@/src/api";
 import { useToast } from "@/src/components/toast";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -77,27 +78,36 @@ export default function SettingsScreen() {
       const asset = res.assets[0];
       setUploading(true);
 
-      const form = new FormData();
-      const name = asset.fileName || `photo.${asset.mimeType?.split("/")[1] || "jpg"}`;
-      const type = asset.mimeType || "image/jpeg";
+      let localUri = asset.uri;
       if (Platform.OS === "web") {
+        // On web store as data URL so it survives reloads (no persistent FS).
         const blob = await (await fetch(asset.uri)).blob();
-        form.append("file", blob, name);
+        localUri = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
       } else {
-        form.append("file", { uri: asset.uri, name, type } as any);
+        // Copy picker temp file into persistent app document directory.
+        const dir = FileSystem.documentDirectory;
+        if (dir) {
+          const ext = (asset.mimeType?.split("/")[1] || "jpg").replace("jpeg", "jpg");
+          const dest = `${dir}teacher-photo-${Date.now()}.${ext}`;
+          try {
+            await FileSystem.copyAsync({ from: asset.uri, to: dest });
+            localUri = dest;
+          } catch {
+            // fall back to raw uri if copy fails
+          }
+        }
       }
-      const resp = await fetch(`${BACKEND_URL}/api/teacher/photo`, {
-        method: "POST",
-        body: form as any,
-      });
-      if (!resp.ok) {
-        const t = await resp.text();
-        throw new Error(`${resp.status}: ${t || resp.statusText}`);
-      }
+
+      await api.setTeacherPhoto(localUri);
       toast.show("Foto profil diperbarui", "success");
       qc.invalidateQueries({ queryKey: ["teacher"] });
     } catch (e: any) {
-      toast.show(e?.message || "Gagal mengunggah foto", "error");
+      toast.show(e?.message || "Gagal memilih foto", "error");
     } finally {
       setUploading(false);
     }
@@ -209,7 +219,7 @@ export default function SettingsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>Sistem Manajemen Nilai Siswa</Text>
-                <Text style={styles.rowSub}>Aplikasi pengelola nilai untuk guru</Text>
+                <Text style={styles.rowSub}>100% offline • Data tersimpan di perangkat</Text>
               </View>
             </View>
             <View style={styles.sep} />

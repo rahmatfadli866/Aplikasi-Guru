@@ -12,16 +12,14 @@ import "@react-native-vector-icons/material-design-icons";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
 import { ToastProvider } from "@/src/components/toast";
+import { ensureInitialized } from "@/src/local-store";
 
 LogBox.ignoreAllLogs(true);
 
 export default function RootLayout() {
   useEffect(() => {
-    // Warm up defaults on backend
-    const base = process.env.EXPO_PUBLIC_BACKEND_URL;
-    if (base) {
-      fetch(`${base}/api/init`, { method: "POST" }).catch(() => {});
-    }
+    // Prepare local (offline) data store on first launch.
+    ensureInitialized().catch(() => {});
   }, []);
 
   return (
