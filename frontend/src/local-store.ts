@@ -311,6 +311,14 @@ export async function getStats(): Promise<Stats> {
 }
 
 // ---- Reset (danger) ----
+export async function resetStudentsData(): Promise<void> {
+  await Promise.all([
+    storage.removeItem(K.students),
+    storage.removeItem(K.grades),
+    storage.removeItem(K.attendance),
+  ]);
+}
+
 export async function resetAll(): Promise<void> {
   await Promise.all([
     storage.removeItem(K.teacher),

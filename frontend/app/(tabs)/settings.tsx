@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -122,6 +123,19 @@ export default function SettingsScreen() {
     onError: (e: any) => toast.show(e.message || "Gagal", "error"),
   });
 
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState("");
+  const resetMut = useMutation({
+    mutationFn: () => api.resetStudentsData(),
+    onSuccess: () => {
+      toast.show("Semua data siswa berhasil dihapus", "success");
+      qc.invalidateQueries();
+      setResetOpen(false);
+      setResetConfirm("");
+    },
+    onError: (e: any) => toast.show(e.message || "Gagal", "error"),
+  });
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -209,6 +223,21 @@ export default function SettingsScreen() {
               </View>
               <Icon name="chevron-right" size={22} color={colors.muted} />
             </Pressable>
+            <View style={styles.sep} />
+            <Pressable
+              testID="row-reset"
+              style={styles.row}
+              onPress={() => setResetOpen(true)}
+            >
+              <View style={[styles.rowIcon, { backgroundColor: colors.errorSoft }]}>
+                <Icon name="delete-sweep" size={20} color={colors.error} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowTitle, { color: colors.error }]}>Hapus Semua Data Siswa</Text>
+                <Text style={styles.rowSub}>Kosongkan siswa, nilai, & kehadiran</Text>
+              </View>
+              <Icon name="chevron-right" size={22} color={colors.muted} />
+            </Pressable>
           </View>
 
           <Text style={styles.section}>TENTANG APLIKASI</Text>
@@ -247,6 +276,56 @@ export default function SettingsScreen() {
           <Text style={styles.footerNote}>© 2026 Sistem Manajemen Nilai Siswa</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal visible={resetOpen} transparent animationType="fade" onRequestClose={() => setResetOpen(false)}>
+        <Pressable style={styles.mBackdrop} onPress={() => !resetMut.isPending && setResetOpen(false)}>
+          <Pressable style={styles.mSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.mIconWrap}>
+              <Icon name="alert-octagon" size={36} color={colors.error} />
+            </View>
+            <Text style={styles.mTitle}>Hapus Semua Data Siswa?</Text>
+            <Text style={styles.mBody}>
+              Semua <Text style={{ fontWeight: "800" }}>data siswa, nilai, dan kehadiran</Text> akan dihapus permanen dari perangkat ini.{"\n\n"}Profil guru dan kategori nilai <Text style={{ fontWeight: "800" }}>tidak</Text> akan dihapus.
+            </Text>
+            <Text style={styles.mLbl}>Ketik <Text style={{ fontWeight: "800", color: colors.error }}>HAPUS</Text> untuk konfirmasi</Text>
+            <TextInput
+              testID="reset-confirm-input"
+              style={styles.mInput}
+              value={resetConfirm}
+              onChangeText={setResetConfirm}
+              placeholder="HAPUS"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="characters"
+            />
+            <View style={styles.mActions}>
+              <Pressable
+                testID="reset-cancel"
+                style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}
+                onPress={() => { setResetOpen(false); setResetConfirm(""); }}
+                disabled={resetMut.isPending}
+              >
+                <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Batal</Text>
+              </Pressable>
+              <Pressable
+                testID="reset-confirm"
+                style={[
+                  styles.mBtn,
+                  { backgroundColor: colors.error },
+                  (resetConfirm.trim().toUpperCase() !== "HAPUS" || resetMut.isPending) && { opacity: 0.5 },
+                ]}
+                disabled={resetConfirm.trim().toUpperCase() !== "HAPUS" || resetMut.isPending}
+                onPress={() => resetMut.mutate()}
+              >
+                {resetMut.isPending ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={{ color: "#FFFFFF", fontWeight: "800" }}>Hapus</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -330,4 +409,22 @@ const useStyles = makeStyles((colors) => ({
   rowTitle: { fontSize: 15, fontWeight: "600", color: colors.onSurface },
   rowSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
   footerNote: { textAlign: "center", color: colors.muted, marginTop: 24, fontSize: 12 },
+
+  mBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
+  mSheet: { backgroundColor: colors.surfaceSecondary, borderRadius: 20, padding: 24, width: "100%", maxWidth: 420 },
+  mIconWrap: {
+    width: 68, height: 68, borderRadius: 34, backgroundColor: colors.errorSoft,
+    alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 14,
+  },
+  mTitle: { fontSize: 18, fontWeight: "800", color: colors.onSurface, textAlign: "center", marginBottom: 10 },
+  mBody: { fontSize: 14, color: colors.onSurfaceSecondary, textAlign: "center", lineHeight: 20, marginBottom: 16 },
+  mLbl: { fontSize: 12, color: colors.muted, marginBottom: 6, textAlign: "center" },
+  mInput: {
+    backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.borderStrong,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 16, fontWeight: "700", color: colors.onSurface, textAlign: "center",
+    letterSpacing: 2,
+  },
+  mActions: { flexDirection: "row", gap: 12, marginTop: 16 },
+  mBtn: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: 12 },
 }));

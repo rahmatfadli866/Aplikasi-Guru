@@ -36,6 +36,8 @@ export const api = {
   updateGrade: (id: string, nilai: number) => local.updateGrade(id, nilai),
   deleteGrade: (id: string) => local.deleteGrade(id).then(() => ({ ok: true as const })),
 
+  resetStudentsData: () => local.resetStudentsData(),
+
   listAttendance: (params: { kelas?: number; tanggal?: string; student_id?: string }) => local.listAttendance(params),
   saveAttendance: (data: { student_id: string; tanggal: string; status: string }) => local.saveAttendance(data),
   attendanceSummary: (kelas?: number) => local.attendanceSummary(kelas),
