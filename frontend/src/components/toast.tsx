@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { createContext, useCallback, useContext, useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { useTheme } from "@/src/theme";
@@ -57,9 +57,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           ]}
           testID="toast"
         >
-          <Pressable onPress={hide} style={[styles.toast, { backgroundColor: bg }]}>
+          <Pressable testID="toast-dismiss" onPress={hide} style={[styles.toast, { backgroundColor: bg }]}>
             <Icon name={icon} size={20} color="#FFFFFF" />
-            <Text style={styles.text}>{toast.msg}</Text>
+            <Text testID="toast-message" style={styles.text}>{toast.msg}</Text>
           </Pressable>
         </Animated.View>
       )}

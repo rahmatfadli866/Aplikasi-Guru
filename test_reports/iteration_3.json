@@ -1,0 +1,57 @@
+{
+  "summary": "Pengujian frontend-only (offline) untuk alur input nilai per mata pelajaran, rekap terfilter mapel/kelas, legacy grade, ekspor Excel, quick action input+absensi berbasis jadwal aktif, fallback manual saat tidak ada jadwal, transisi jadwal, serta cek viewport 390x844 dan 320x667. Mayoritas skenario lulus, ditemukan 1 bug fungsional pada edit nilai kosong di Rekap.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Rekap inline edit modal",
+        "issue": "Pada sel kosong, tombol simpan (edit-save) terdeteksi masih aktif (is_disabled=False). Ini berisiko menyimpan nilai kosong sebagai 0 (karena Number(\"\") -> 0), padahal requirement: nilai kosong tidak boleh tersimpan sebagai nol.",
+        "testID": "edit-save",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "RN Web console",
+        "issue": "Muncul warning non-blocking berulang: 'shadow* style props are deprecated. Use boxShadow'."
+      },
+      {
+        "component": "RN Web console",
+        "issue": "Muncul warning non-blocking: 'Animated useNativeDriver is not supported' pada web preview."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/artifacts_iter3/home_baseline.jpeg",
+    "/app/test_reports/artifacts_iter3/input_390.jpeg",
+    "/app/test_reports/artifacts_iter3/rekap_320.jpeg",
+    "/app/test_reports/artifacts_iter3/rekap-kelas-4-Matematika.xlsx"
+  ],
+  "action_items": [
+    "Perbaiki guard tombol edit-save di modal rekap agar nilai kosong benar-benar disabled dan tidak pernah tersimpan sebagai 0.",
+    "Retest khusus skenario: klik sel kosong -> edit modal -> save harus nonaktif sampai angka valid diisi.",
+    "Opsional: rapikan warning RN Web (shadow* dan useNativeDriver) agar noise console berkurang saat QA automation."
+  ],
+  "critical_code_review_comments": [
+    "Normalisasi mapel (trim + collapse whitespace + lowercase key) di subject-utils/local-store sudah sesuai untuk mencegah duplikasi karena case/spasi.",
+    "Alur quick mode sudah benar: hanya lock saat state jadwal 'ongoing'; jadwal 'next' tidak diprefill dan fallback ke form manual.",
+    "Route quick input (/input-cepat) memakai key berbasis schedule id/kelas/mapel sehingga stale state lebih aman ter-reset ketika konteks jadwal berubah."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_3.json"
+  ],
+  "success_rate": {
+    "backend": "N/A (skip sesuai instruksi)",
+    "frontend": "93%"
+  },
+  "seed_data_creation": "Membuat data uji terisolasi di storage browser (students class4/class2, kategori, grades, attendance, schedules), termasuk 1 legacy grade tanpa mata_pelajaran untuk validasi backward-compatibility.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Aplikasi diverifikasi tetap offline (local storage) dan reload persistence berfungsi. Rekap class filter tidak membocorkan nilai lintas kelas. Legacy grade hanya muncul pada opsi '__legacy_subject__' dan tidak bisa create record legacy baru dari sel kosong. Export Excel terunduh dan konten workbook memuat label subject terpilih ('Matematika'). Keterbatasan browser: metadata PDF/print native share tidak diverifikasi penuh (hanya konteks modal export yang menampilkan subject terpilih).",
+  "rca_of_issue": "Reproduksi bug utama: (1) Seed 2 siswa kelas 4, buat nilai hanya untuk siswa A pada kategori Bab 1. (2) Buka Rekap kelas 4, pilih mapel terkait. (3) Klik sel kosong siswa B-kategori Bab 1. (4) Di modal edit, tombol edit-save terdeteksi aktif padahal input kosong. Dugaan akar masalah: state editValue tidak dianggap kosong pada kondisi tertentu/tertinggal dari sesi sebelumnya, sehingga syarat disabled di UI tidak konsisten dengan requirement. Mitigasi: enforce validation ganda pada UI + mutation (reject jika trim kosong sebelum Number conversion) dan reset state modal secara ketat saat open/close."
+}

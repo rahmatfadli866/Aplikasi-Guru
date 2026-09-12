@@ -29,33 +29,36 @@ export function Dropdown({
 
   return (
     <View>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <Text testID={`${testID}-label`} style={styles.label}>{label}</Text> : null}
       <Pressable
         testID={testID}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !!disabled }}
+        disabled={disabled}
         onPress={() => !disabled && setOpen(true)}
         style={[
           styles.field,
           disabled && { opacity: 0.5 },
         ]}
       >
-        <Text style={sel ? styles.value : styles.placeholder} numberOfLines={1}>
+        <Text testID={`${testID}-value`} style={sel ? styles.value : styles.placeholder} numberOfLines={1}>
           {sel ? sel.label : placeholder}
         </Text>
         <Icon name="chevron-down" size={20} color={colors.muted} />
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+      <Modal testID={`${testID}-modal`} visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable testID={`${testID}-backdrop`} style={styles.backdrop} onPress={() => setOpen(false)}>
+          <Pressable testID={`${testID}-sheet`} style={styles.sheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>{placeholder}</Text>
-              <Pressable onPress={() => setOpen(false)} hitSlop={12}>
+              <Text testID={`${testID}-title`} style={styles.sheetTitle}>{placeholder}</Text>
+              <Pressable testID={`${testID}-close`} style={styles.closeBtn} onPress={() => setOpen(false)} hitSlop={12}>
                 <Icon name="close" size={22} color={colors.onSurface} />
               </Pressable>
             </View>
             <ScrollView style={{ maxHeight: 380 }}>
               {options.length === 0 && (
-                <Text style={styles.empty}>Tidak ada pilihan tersedia</Text>
+                <Text testID={`${testID}-empty`} style={styles.empty}>Tidak ada pilihan tersedia</Text>
               )}
               {options.map((o) => {
                 const isSel = o.value === value;
@@ -69,7 +72,7 @@ export function Dropdown({
                     }}
                     style={[styles.option, isSel && { backgroundColor: colors.brandTertiary }]}
                   >
-                    <Text style={[styles.optionText, isSel && { color: colors.brandPrimary, fontWeight: "700" }]}>
+                    <Text testID={`${testID}-option-${o.value}-label`} style={[styles.optionText, isSel && { color: colors.brandPrimary, fontWeight: "700" }]}>
                       {o.label}
                     </Text>
                     {isSel && <Icon name="check" size={18} color={colors.brandPrimary} />}
@@ -120,7 +123,8 @@ const useStyles = makeStyles((colors) => ({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.divider,
   },
-  sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.onSurface },
+  sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.onSurface, flex: 1 },
+  closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   option: {
     flexDirection: "row",
     alignItems: "center",

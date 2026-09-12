@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -16,10 +17,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as XLSX from "xlsx";
 import { api, Category, Grade, Student, Teacher } from "@/src/api";
 import { useToast } from "@/src/components/toast";
+import { Dropdown } from "@/src/components/dropdown";
+import { useSubjects } from "@/src/hooks/use-subjects";
+import { LEGACY_SUBJECT, LEGACY_SUBJECT_LABEL, subjectKey } from "@/src/subject-utils";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const KELAS_LIST = [1, 2, 3, 4, 5, 6];
@@ -32,20 +36,34 @@ export default function RekapScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const qc = useQueryClient();
+  const router = useRouter();
 
   const [kelas, setKelas] = useState<number>(1);
-  const [editing, setEditing] = useState<{ studentId: string; categoryId: string; grade?: Grade } | null>(null);
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const subjectsQ = useSubjects();
+  const [editing, setEditing] = useState<{ studentId: string; categoryId: string; subject: string; grade?: Grade } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
+  const canSaveEdit = !!editing && editValue.trim() !== "" && Number.isFinite(Number(editValue))
+    && Number(editValue) >= 0 && Number(editValue) <= 100;
 
   const catsQ = useQuery({ queryKey: ["categories"], queryFn: api.listCategories });
   const studentsQ = useQuery({
     queryKey: ["students", kelas],
     queryFn: () => api.listStudents(kelas),
   });
+  const hasLegacy = subjectsQ.grades.some((g) => !subjectKey(g.mata_pelajaran)
+    && studentsQ.data?.some((s) => s.id === g.student_id));
+  const subjectOptions = [
+    ...subjectsQ.subjects.map((s) => ({ label: s, value: s })),
+    ...(hasLegacy ? [{ label: LEGACY_SUBJECT_LABEL, value: LEGACY_SUBJECT }] : []),
+  ];
+  const subject = subjectOptions.find((o) => o.value === selectedSubject)?.value || subjectOptions[0]?.value || "";
+  const subjectLabel = subject === LEGACY_SUBJECT ? LEGACY_SUBJECT_LABEL : subject;
   const gradesQ = useQuery({
-    queryKey: ["grades", "kelas", kelas],
-    queryFn: () => api.listGrades({ kelas }),
+    queryKey: ["grades", "kelas", kelas, subjectKey(subject)],
+    queryFn: () => api.listGrades({ kelas, mata_pelajaran: subject === LEGACY_SUBJECT ? null : subject }),
+    enabled: !!subject,
   });
   const teacherQ = useQuery({ queryKey: ["teacher"], queryFn: api.getTeacher });
   const attSumQ = useQuery({
@@ -53,9 +71,9 @@ export default function RekapScreen() {
     queryFn: () => api.attendanceSummary(kelas),
   });
 
-  const categories = catsQ.data || [];
-  const students = studentsQ.data || [];
-  const grades = gradesQ.data || [];
+  const categories = useMemo(() => catsQ.data || [], [catsQ.data]);
+  const students = useMemo(() => studentsQ.data || [], [studentsQ.data]);
+  const grades = useMemo(() => gradesQ.data || [], [gradesQ.data]);
 
   const gradeMap = useMemo(() => {
     const m = new Map<string, Grade>();
@@ -83,11 +101,11 @@ export default function RekapScreen() {
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      if (!editing) return;
+      if (!editing || !canSaveEdit) throw new Error("Isi angka antara 0 dan 100 terlebih dahulu");
       const val = Number(editValue);
-      if (isNaN(val) || val < 0 || val > 100) throw new Error("Nilai harus 0-100");
+      if (!editValue.trim() || !Number.isFinite(val) || val < 0 || val > 100) throw new Error("Nilai harus 0-100");
       if (editing.grade) return api.updateGrade(editing.grade.id, val);
-      return api.saveGrade({ student_id: editing.studentId, category_id: editing.categoryId, nilai: val });
+      return api.saveGrade({ student_id: editing.studentId, category_id: editing.categoryId, mata_pelajaran: editing.subject, nilai: val });
     },
     onSuccess: () => {
       toast.show("Nilai diperbarui", "success");
@@ -99,22 +117,41 @@ export default function RekapScreen() {
     onError: (e: any) => toast.show(e.message || "Gagal", "error"),
   });
 
+  const closeEdit = () => {
+    if (saveMut.isPending) return;
+    setEditing(null);
+    setEditValue("");
+  };
+
   const openEdit = (studentId: string, categoryId: string) => {
     const g = gradeMap.get(`${studentId}_${categoryId}`);
-    setEditing({ studentId, categoryId, grade: g });
+    if (!subject) return;
+    if (subject === LEGACY_SUBJECT && !g) {
+      toast.show("Pilih mata pelajaran untuk menambahkan nilai baru", "info");
+      return;
+    }
+    setEditing({ studentId, categoryId, subject, grade: g });
     setEditValue(g ? String(g.nilai) : "");
   };
 
+  const runExport = async (operation: () => Promise<void>) => {
+    setExportOpen(false);
+    try { await operation(); } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Ekspor gagal. Coba kembali.", "error");
+    }
+  };
+
   return (
-    <View style={styles.container}>
+    <View testID="rekap-screen" style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Rekap Nilai</Text>
-            <Text style={styles.headerSub}>Kelas {kelas} • {rows.length} siswa</Text>
+            <Text testID="rekap-title" style={styles.headerTitle}>Rekap Nilai</Text>
+            <Text testID="rekap-summary" style={styles.headerSub}>Kelas {kelas} • {rows.length} siswa</Text>
           </View>
           <Pressable
             testID="btn-export"
+            disabled={!subject || gradesQ.isLoading || studentsQ.isLoading}
             onPress={() => setExportOpen(true)}
             style={styles.exportBtn}
           >
@@ -134,6 +171,8 @@ export default function RekapScreen() {
               <Pressable
                 key={k}
                 testID={`chip-kelas-${k}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
                 onPress={() => setKelas(k)}
                 style={[styles.chip, active && styles.chipActive]}
               >
@@ -142,21 +181,36 @@ export default function RekapScreen() {
             );
           })}
         </ScrollView>
+        <View style={styles.subjectFilter}>
+          <Dropdown testID="rekap-dd-mapel" label="Mata Pelajaran" placeholder="Pilih Mata Pelajaran"
+            value={subject} options={subjectOptions} onChange={setSelectedSubject} />
+        </View>
+        <Text testID="rekap-subject-summary" style={styles.headerSub}>{subjectLabel || "Belum ada mata pelajaran"}</Text>
+        {subject === LEGACY_SUBJECT && <Text testID="rekap-legacy-notice" style={styles.headerSub}>
+          Data lama tetap utuh dan tidak dicampurkan dengan nilai mata pelajaran baru.
+        </Text>}
       </View>
 
-      {(catsQ.isLoading || studentsQ.isLoading || gradesQ.isLoading) && (
-        <View style={styles.center}><ActivityIndicator color={colors.brandPrimary} /></View>
+      {(catsQ.isLoading || studentsQ.isLoading || gradesQ.isLoading || subjectsQ.isLoading) && (
+        <View style={styles.center}><ActivityIndicator testID="rekap-loading" color={colors.brandPrimary} /></View>
       )}
 
       {!studentsQ.isLoading && students.length === 0 ? (
         <View style={styles.center}>
           <Icon name="notebook-outline" size={64} color={colors.muted} />
-          <Text style={styles.emptyTxt}>Belum ada siswa di kelas ini</Text>
+          <Text testID="rekap-no-students" style={styles.emptyTxt}>Belum ada siswa di kelas ini</Text>
         </View>
       ) : null}
 
-      {students.length > 0 && (
-        <ScrollView style={{ flex: 1 }}>
+      {!subject && !subjectsQ.isLoading && students.length > 0 && <View style={styles.center}>
+        <Text testID="rekap-no-subject" style={styles.emptyTxt}>Isi nilai atau tambahkan jadwal untuk memilih mata pelajaran.</Text>
+        <Pressable testID="rekap-go-input" style={styles.exportBtn} onPress={() => router.push("/(tabs)/input")}>
+          <Text style={styles.exportTxt}>Input Nilai</Text>
+        </Pressable>
+      </View>}
+      {!!subject && !gradesQ.isLoading && students.length > 0 && (
+        <ScrollView testID="rekap-table" style={{ flex: 1 }}>
+          <Text testID="rekap-attendance-note" style={styles.attendanceNote}>Kehadiran harian berlaku untuk semua mata pelajaran.</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View>
               {/* header row */}
@@ -187,7 +241,7 @@ export default function RekapScreen() {
                     <View style={[styles.cell, styles.nameCell, { width: COL_NAME_W }]}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Text style={styles.rowNo}>{idx + 1}.</Text>
-                        <Text style={styles.rowName} numberOfLines={2}>{r.student.nama}</Text>
+                        <Text testID={`rekap-student-${r.student.id}`} style={styles.rowName} numberOfLines={2}>{r.student.nama}</Text>
                       </View>
                       {att ? (
                         <View style={styles.attRow} testID={`att-${r.student.id}`}>
@@ -218,19 +272,19 @@ export default function RekapScreen() {
                           onPress={() => openEdit(r.student.id, c.id)}
                           style={[styles.cell, { width: COL_W }]}
                         >
-                          <Text style={[styles.cellTxt, !has && { color: colors.muted }]}>
+                          <Text testID={`grade-value-${r.student.id}-${c.id}`} style={[styles.cellTxt, !has && { color: colors.muted }]}>
                             {has ? v : "—"}
                           </Text>
                         </Pressable>
                       );
                     })}
                     <View style={[styles.cell, { width: COL_W, backgroundColor: colors.brandTertiary }]}>
-                      <Text style={[styles.cellTxt, { color: colors.brandPrimary, fontWeight: "700" }]}>
+                      <Text testID={`grade-sum-${r.student.id}`} style={[styles.cellTxt, { color: colors.brandPrimary, fontWeight: "700" }]}>
                         {r.sum.toFixed(0)}
                       </Text>
                     </View>
                     <View style={[styles.cell, { width: COL_W, backgroundColor: bgAvg, flexDirection: "row", gap: 4 }]}>
-                      <Text style={[styles.cellTxt, { color: fgAvg, fontWeight: "800" }]}>
+                      <Text testID={`grade-average-${r.student.id}`} style={[styles.cellTxt, { color: fgAvg, fontWeight: "800" }]}>
                         {r.count === 0 ? "—" : r.avg.toFixed(1)}
                       </Text>
                       {r.count > 0 && (
@@ -251,80 +305,81 @@ export default function RekapScreen() {
       )}
 
       {/* Edit modal */}
-      <Modal visible={!!editing} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setEditing(null)}>
-          <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.editTitle}>Edit Nilai</Text>
-            <Text style={styles.editSub}>
+      <Modal testID="rekap-edit-modal" visible={!!editing} transparent animationType="fade" onRequestClose={closeEdit}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.flex}>
+        <Pressable testID="rekap-edit-backdrop" style={styles.backdrop} onPress={closeEdit}>
+          <Pressable testID="rekap-edit-sheet" style={[styles.editSheet, { paddingBottom: Math.max(insets.bottom, 20) }]} onPress={(e) => e.stopPropagation()}>
+            <Text testID="rekap-edit-title" style={styles.editTitle}>Edit Nilai</Text>
+            <Text testID="rekap-edit-context" style={styles.editSub}>
               {students.find((s) => s.id === editing?.studentId)?.nama} •{" "}
-              {categories.find((c) => c.id === editing?.categoryId)?.nama}
+              {categories.find((c) => c.id === editing?.categoryId)?.nama} • {subjectLabel}
             </Text>
             <TextInput
               testID="edit-input"
               style={styles.editInput}
               value={editValue}
-              onChangeText={(t) => setEditValue(t.replace(/[^0-9.]/g, ""))}
+              editable={!saveMut.isPending}
+              onChangeText={(t) => setEditValue(t.replace(",", ".").replace(/[^0-9.]/g, ""))}
               keyboardType="numeric"
               autoFocus
               placeholder="0 - 100"
               placeholderTextColor={colors.muted}
             />
+            {!canSaveEdit && <Text testID="rekap-edit-validation" style={styles.editValidation}>Isi angka antara 0 dan 100 untuk menyimpan.</Text>}
             <View style={styles.editActions}>
-              <Pressable style={[styles.editBtn, { backgroundColor: colors.surfaceTertiary }]} onPress={() => setEditing(null)}>
+              <Pressable testID="rekap-edit-cancel" accessibilityRole="button" disabled={saveMut.isPending}
+                style={[styles.editBtn, { backgroundColor: colors.surfaceTertiary }]} onPress={closeEdit}>
                 <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Batal</Text>
               </Pressable>
               <Pressable
                 testID="edit-save"
-                style={[styles.editBtn, { backgroundColor: colors.brandPrimary }]}
-                onPress={() => saveMut.mutate()}
-                disabled={saveMut.isPending}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !canSaveEdit || saveMut.isPending, busy: saveMut.isPending }}
+                style={[styles.editBtn, { backgroundColor: colors.brandPrimary }, (!canSaveEdit || saveMut.isPending) && styles.disabledButton]}
+                onPress={() => { if (canSaveEdit && !saveMut.isPending) saveMut.mutate(); }}
+                disabled={!canSaveEdit || saveMut.isPending}
               >
-                <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>
-                  {saveMut.isPending ? "..." : "Simpan"}
-                </Text>
+                {saveMut.isPending ? <ActivityIndicator testID="rekap-edit-saving" color={colors.onBrandPrimary} />
+                  : <Text testID="rekap-edit-save-label" style={{ color: colors.onBrandPrimary, fontWeight: "700" }}>Simpan</Text>}
               </Pressable>
             </View>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Export bottom sheet */}
-      <Modal visible={exportOpen} transparent animationType="fade" onRequestClose={() => setExportOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setExportOpen(false)}>
-          <Pressable style={[styles.editSheet, { paddingBottom: 24 }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.editTitle}>Export Data</Text>
-            <Text style={styles.editSub}>Pilih format ekspor untuk Kelas {kelas}</Text>
+      <Modal testID="rekap-export-modal" visible={exportOpen} transparent animationType="fade" onRequestClose={() => setExportOpen(false)}>
+        <Pressable testID="rekap-export-backdrop" style={styles.backdrop} onPress={() => setExportOpen(false)}>
+          <Pressable testID="rekap-export-sheet" style={[styles.editSheet, { paddingBottom: Math.max(insets.bottom, 24) }]} onPress={(e) => e.stopPropagation()}>
+            <Text testID="rekap-export-title" style={styles.editTitle}>Export Data</Text>
+            <Text testID="rekap-export-context" style={styles.editSub}>Kelas {kelas} • {subjectLabel}</Text>
             <ExportButton
               icon="file-pdf-box"
               label="PDF (Landscape)"
               testID="export-pdf"
               color={colors.error}
-              onPress={async () => {
-                setExportOpen(false);
-                await exportPdf({ kelas, teacher: teacherQ.data, categories, rows, share: true });
+              onPress={() => runExport(async () => {
+                await exportPdf({ kelas, subject: subjectLabel, teacher: teacherQ.data, categories, rows, share: true });
                 toast.show("PDF siap dibagikan", "success");
-              }}
+              })}
             />
             <ExportButton
               icon="file-excel"
               label="Excel (.xlsx)"
               testID="export-xlsx"
               color={colors.success}
-              onPress={async () => {
-                setExportOpen(false);
-                await exportExcel({ kelas, categories, rows });
+              onPress={() => runExport(async () => {
+                await exportExcel({ kelas, subject: subjectLabel, categories, rows });
                 toast.show("Excel berhasil diekspor", "success");
-              }}
+              })}
             />
             <ExportButton
               icon="printer"
               label="Print / Bagikan Cetakan"
               testID="export-print"
               color={colors.info}
-              onPress={async () => {
-                setExportOpen(false);
-                await exportPrint({ kelas, teacher: teacherQ.data, categories, rows });
-              }}
+              onPress={() => runExport(() => exportPrint({ kelas, subject: subjectLabel, teacher: teacherQ.data, categories, rows }))}
             />
           </Pressable>
         </Pressable>
@@ -359,12 +414,13 @@ function ExportButton({
 
 type ExportInput = {
   kelas: number;
+  subject: string;
   teacher?: Teacher;
   categories: Category[];
   rows: { student: Student; values: (number | undefined)[]; sum: number; avg: number; count: number }[];
 };
 
-function buildHtml({ kelas, teacher, categories, rows }: ExportInput) {
+function buildHtml({ kelas, subject, teacher, categories, rows }: ExportInput) {
   const th = categories.map((c) => `<th>${escape(c.nama)}</th>`).join("");
   const trs = rows
     .map((r, i) => {
@@ -402,7 +458,7 @@ function buildHtml({ kelas, teacher, categories, rows }: ExportInput) {
     <div class="meta">
       <b>Guru:</b> ${escape(teacher?.nama || "-")} &nbsp;·&nbsp;
       <b>NIP:</b> ${escape(teacher?.nip || "-")} &nbsp;·&nbsp;
-      <b>Mata Pelajaran:</b> ${escape(teacher?.mata_pelajaran || "-")}
+      <b>Mata Pelajaran:</b> ${escape(subject)}
     </div>
     <table>
       <thead>
@@ -423,12 +479,11 @@ function escape(s: string) {
 
 async function exportPdf(input: ExportInput & { share?: boolean }) {
   const html = buildHtml(input);
-  const { uri } = await Print.printToFileAsync({ html, base64: false });
   if (Platform.OS === "web") {
-    // On web, open the PDF in new tab
-    window.open(uri, "_blank");
+    await Print.printAsync({ html });
     return;
   }
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Bagikan PDF" });
   }
@@ -439,7 +494,7 @@ async function exportPrint(input: ExportInput) {
   await Print.printAsync({ html });
 }
 
-async function exportExcel({ kelas, categories, rows }: ExportInput) {
+async function exportExcel({ kelas, subject, categories, rows }: ExportInput) {
   const headers = ["No", "Nama Siswa", ...categories.map((c) => c.nama), "Jumlah", "Rata-rata"];
   const data = rows.map((r, i) => [
     i + 1,
@@ -448,17 +503,18 @@ async function exportExcel({ kelas, categories, rows }: ExportInput) {
     r.sum,
     r.count === 0 ? "" : Number(r.avg.toFixed(2)),
   ]);
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+  const ws = XLSX.utils.aoa_to_sheet([[`Rekap Nilai Kelas ${kelas}`, subject], [], headers, ...data]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, `Kelas ${kelas}`);
+  const filename = `rekap-kelas-${kelas}-${subject.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 80)}.xlsx`;
 
   if (Platform.OS === "web") {
-    XLSX.writeFile(wb, `rekap-kelas-${kelas}.xlsx`);
+    XLSX.writeFile(wb, filename);
     return;
   }
   const b64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
   const dir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
-  const uri = `${dir}rekap-kelas-${kelas}.xlsx`;
+  const uri = `${dir}${filename}`;
   await FileSystem.writeAsStringAsync(uri, b64, { encoding: FileSystem.EncodingType.Base64 });
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, {
@@ -469,6 +525,11 @@ async function exportExcel({ kelas, categories, rows }: ExportInput) {
 }
 
 const useStyles = makeStyles((colors) => ({
+  disabledButton: { opacity: 0.45 },
+  editValidation: { color: colors.muted, fontSize: 12, marginTop: 8 },
+  flex: { flex: 1 },
+  subjectFilter: { marginTop: 16, marginBottom: 4 },
+  attendanceNote: { fontSize: 12, color: colors.muted, padding: 12 },
   container: { flex: 1, backgroundColor: colors.surface },
   header: {
     paddingHorizontal: 16, paddingBottom: 12,
@@ -485,7 +546,7 @@ const useStyles = makeStyles((colors) => ({
   exportTxt: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
   chipRow: { gap: 8, paddingRight: 8 },
   chip: {
-    height: 36, paddingHorizontal: 14, borderRadius: 999,
+    height: 44, paddingHorizontal: 14, borderRadius: 999,
     backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.border,
     alignItems: "center", justifyContent: "center", flexShrink: 0,
   },

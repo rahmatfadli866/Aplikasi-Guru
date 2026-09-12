@@ -8,6 +8,8 @@ export type {
   Student,
   Category,
   Grade,
+  GradeInput,
+  GradeFilter,
   Attendance,
   Schedule,
   AttendanceSummary,
@@ -32,8 +34,8 @@ export const api = {
   updateCategory: (id: string, data: { nama: string; urutan?: number }) => local.updateCategory(id, data),
   deleteCategory: (id: string) => local.deleteCategory(id).then(() => ({ ok: true as const })),
 
-  listGrades: (params?: { student_id?: string; kelas?: number }) => local.listGrades(params),
-  saveGrade: (data: { student_id: string; category_id: string; nilai: number }) => local.saveGrade(data),
+  listGrades: (params?: local.GradeFilter) => local.listGrades(params),
+  saveGrade: (data: local.GradeInput) => local.saveGrade(data),
   updateGrade: (id: string, nilai: number) => local.updateGrade(id, nilai),
   deleteGrade: (id: string) => local.deleteGrade(id).then(() => ({ ok: true as const })),
 

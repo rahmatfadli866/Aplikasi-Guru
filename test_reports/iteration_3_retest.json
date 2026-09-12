@@ -1,0 +1,23 @@
+{
+  "type": "main_agent_targeted_frontend_retest",
+  "base_report": "/app/test_reports/iteration_3.json",
+  "result": "pass",
+  "resolved_issue": "Status tombol edit rekap kosong tidak cukup jelas untuk aksesibilitas/pengujian; guard penyimpanan menolak blank dan diperkuat dengan validasi bersama, role/state disabled, gaya redup, serta reset saat modal ditutup.",
+  "verified_cases": [
+    "Membuat data uji siswa melalui Master Data, menyimpan nilai mapel melalui tab Input",
+    "Membuka sel kosong: edit-input kosong, edit-save is_disabled=true dan aria-disabled=true",
+    "Angka 101 dan 1..2 tidak dapat disimpan",
+    "Angka 100 dan 0 mengaktifkan tombol; angka 0 tersimpan setelah input eksplisit",
+    "Mengosongkan nilai yang sebelumnya 0 menonaktifkan tombol; pembatalan mempertahankan 0",
+    "Membatalkan angka 88 pada sel kosong lalu membuka ulang mengembalikan input kosong dan tombol nonaktif"
+  ],
+  "lint": "pass",
+  "typescript": "pass",
+  "android_bundle": "pass, HTTP 200, 12110500 bytes",
+  "ios_bundle": "pass, HTTP 200, 11738902 bytes",
+  "post_restart_smoke": "pass: Beranda menampilkan Input Absensi, tanpa Lihat Rekap; tab Input memuat urutan kelas-siswa-mapel-jenis-angka",
+  "screenshots": ["/tmp/rekap-empty-edit-fixed.jpeg", "/tmp/rekap-after-edit-validation.jpeg"],
+  "console_log": "/root/.emergent/automation_output/20260912_145856/console_20260912_145856.log",
+  "remaining_functional_issues": [],
+  "limitations": ["PDF/print/native share sheet belum diuji di perangkat fisik", "Warning kompatibilitas RN Web non-blocking pada shadow/animasi lama"]
+}

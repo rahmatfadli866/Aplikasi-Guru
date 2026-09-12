@@ -101,3 +101,57 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Tambahkan dan bedakan input nilai dan rekap nilai sesuai mata pelajaran.
+  Input: kelas → siswa → mata pelajaran → jenis nilai → angka.
+  Aksi cepat nilai otomatis mengikuti kelas dan mapel jadwal berlangsung.
+  Ganti aksi cepat Lihat Rekap menjadi Input Absensi dengan kelas otomatis.
+  Semua data tetap offline; tanpa jadwal aktif pilih manual (disetujui pengguna).
+frontend:
+  - task: "Nilai per mata pelajaran, pemeliharaan nilai lama, rekap dan ekspor terfilter"
+    implemented: true
+    working: true
+    file: "frontend/src/local-store.ts; frontend/src/components/grade-input-form.tsx; frontend/app/(tabs)/rekap.tsx"
+    stuck_count: 0
+    priority: high
+    needs_retesting: false
+    status_history:
+      - working: NA
+        agent: main
+        comment: "Upsert siswa+mapel+jenis; normalisasi case/spasi; legacy terpisah tanpa migrasi destruktif. Input penuh, filter rekap, edit sel dan ekspor menyertakan mapel."
+      - working: true
+        agent: main
+        comment: "Iteration3 mayoritas lulus; perbaikan status disabled edit kosong telah diverifikasi screenshot UI (blank, 101, malformed, 0, cancel/reset). Lihat iteration_3_retest.json. Excel terverifikasi; native share masih perlu perangkat nyata."
+  - task: "Aksi cepat nilai dan absensi berdasarkan jadwal aktif"
+    implemented: true
+    working: true
+    file: "frontend/app/input-cepat.tsx; frontend/app/kehadiran.tsx; frontend/app/(tabs)/home.tsx"
+    stuck_count: 0
+    priority: high
+    needs_retesting: false
+    status_history:
+      - working: NA
+        agent: main
+        comment: "Quick input memakai route tersendiri agar tab Input tetap manual. Absensi cepat otomatis hari ini+kelas. Jadwal selanjutnya tidak dipakai; fallback manual. Live re-resolve dengan timer/focus/AppState. Write lock untuk tap absensi cepat."
+      - working: true
+        agent: testing
+        comment: "Lulus iteration_3: mapel/kelas otomatis, fallback manual, perpindahan konteks, persistensi offline dan viewport mobile."
+metadata:
+  created_by: main_agent
+  version: "1.0"
+  test_sequence: 3
+  run_ui: true
+test_plan:
+  current_focus:
+    - "Isolasi mapel pada input, upsert, edit rekap, agregat dan ekspor"
+    - "Quick actions jadwal berlangsung vs selanjutnya/selesai; pergantian jadwal dan kelas"
+    - "Offline persistensi, legacy tidak hilang, validasi 0..100, absensi lintas siswa"
+  stuck_tasks: []
+  test_all: false
+  test_priority: high_first
+agent_communication:
+  - agent: main
+    message: "Temuan edit-save iteration3 telah diperbaiki dan self-retest lulus. Tidak ada kode aplikasi diubah testing agent (hanya report). Tidak ada bug fungsional tersisa yang ditemukan. Native PDF/print/share perlu validasi di perangkat."
+  - agent: main
+    message: "Uji frontend saja; backend tidak digunakan. Kredensial tidak diperlukan, lihat memory/test_credentials.md. Gunakan isolated browser storage. Jadwal kelas mendukung 4/Kelas 4/Kelas 4A→tingkat 4 dengan keterangan rombel. Nilai lama tanpa mapel hanya di opsi Nilai lama; tidak dapat membuat nilai tanpa mapel baru. Uji pembuatan mapel manual ketika daftar kosong dan pilihan + Mata pelajaran lain."

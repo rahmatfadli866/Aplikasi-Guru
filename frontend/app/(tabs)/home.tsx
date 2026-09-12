@@ -106,20 +106,24 @@ export default function HomeScreen() {
           <Pressable
             testID="shortcut-input"
             style={[styles.shortcut, { backgroundColor: colors.brandPrimary }]}
-            onPress={() => router.push("/(tabs)/input")}
+            onPress={() => router.push("/input-cepat")}
           >
             <Icon name="pencil-plus" size={28} color="#FFFFFF" />
-            <Text style={styles.shortcutTitle}>Input Nilai</Text>
-            <Text style={styles.shortcutSub}>Masukkan nilai siswa</Text>
+            <Text testID="shortcut-input-title" style={styles.shortcutTitle}>Input Nilai</Text>
+            <Text testID="shortcut-input-detail" style={styles.shortcutSub} numberOfLines={2}>
+              {state.kind === "ongoing" ? `${state.schedule.kelas} · ${state.schedule.mata_pelajaran}` : "Pilih kelas & mata pelajaran"}
+            </Text>
           </Pressable>
           <Pressable
-            testID="shortcut-rekap"
+            testID="shortcut-absensi"
             style={[styles.shortcut, { backgroundColor: colors.success }]}
-            onPress={() => router.push("/(tabs)/rekap")}
+            onPress={() => router.push({ pathname: "/kehadiran", params: { cepat: "1" } })}
           >
-            <Icon name="table-large" size={28} color="#FFFFFF" />
-            <Text style={styles.shortcutTitle}>Lihat Rekap</Text>
-            <Text style={styles.shortcutSub}>Tabel nilai & ekspor</Text>
+            <Icon name="account-check" size={28} color={colors.onSuccess} />
+            <Text testID="shortcut-absensi-title" style={styles.shortcutTitle}>Input Absensi</Text>
+            <Text testID="shortcut-absensi-detail" style={styles.shortcutSub} numberOfLines={2}>
+              {state.kind === "ongoing" ? `Presensi ${state.schedule.kelas}` : "Pilih kelas secara manual"}
+            </Text>
           </Pressable>
         </View>
 

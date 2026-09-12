@@ -3,6 +3,7 @@
 // Collections are serialised as JSON strings via `@/src/utils/storage`.
 
 import { storage } from "@/src/utils/storage";
+import { cleanSubject, subjectKey } from "@/src/subject-utils";
 
 const K = {
   teacher: "smns:teacher",
@@ -39,7 +40,19 @@ async function readList<T>(key: string): Promise<T[]> {
 }
 
 async function writeList<T>(key: string, list: T[]): Promise<void> {
-  await storage.setItem(key, JSON.stringify(list));
+  const saved = await storage.setItem(key, JSON.stringify(list));
+  if (!saved) throw new Error("Data gagal disimpan. Periksa ruang penyimpanan perangkat.");
+}
+
+// Serialise read-modify-write operations, including rapid attendance taps.
+const pendingWrites = new Map<string, Promise<unknown>>();
+function withWriteLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = pendingWrites.get(key) || Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  pendingWrites.set(key, next);
+  const release = () => { if (pendingWrites.get(key) === next) pendingWrites.delete(key); };
+  next.then(release, release);
+  return next;
 }
 
 // ---- Types ----
@@ -53,7 +66,10 @@ export type Teacher = {
 };
 export type Student = { id: string; nama: string; kelas: number; created_at: string };
 export type Category = { id: string; nama: string; urutan: number; is_default: boolean };
-export type Grade = { id: string; student_id: string; category_id: string; nilai: number; updated_at: string };
+// Optional only for pre-existing records. Every newly created grade requires a subject.
+export type Grade = { id: string; student_id: string; category_id: string; mata_pelajaran?: string; nilai: number; updated_at: string };
+export type GradeInput = { student_id: string; category_id: string; mata_pelajaran: string; nilai: number };
+export type GradeFilter = { student_id?: string; kelas?: number; mata_pelajaran?: string | null };
 export type Attendance = {
   id: string;
   student_id: string;
@@ -212,11 +228,14 @@ export async function deleteCategory(id: string): Promise<void> {
 }
 
 // ---- Grades ----
-export async function listGrades(params?: { student_id?: string; kelas?: number }): Promise<Grade[]> {
+export async function listGrades(params?: GradeFilter): Promise<Grade[]> {
   const all = await readList<Grade>(K.grades);
   if (!params) return all;
   let filtered = all;
   if (params.student_id) filtered = filtered.filter((g) => g.student_id === params.student_id);
+  if (params.mata_pelajaran !== undefined) {
+    filtered = filtered.filter((g) => subjectKey(g.mata_pelajaran) === subjectKey(params.mata_pelajaran));
+  }
   if (params.kelas !== undefined) {
     const ss = await readList<Student>(K.students);
     const ids = new Set(ss.filter((s) => s.kelas === params.kelas).map((s) => s.id));
@@ -225,27 +244,37 @@ export async function listGrades(params?: { student_id?: string; kelas?: number 
   return filtered;
 }
 
-export async function saveGrade(data: { student_id: string; category_id: string; nilai: number }): Promise<Grade> {
-  if (data.nilai < 0 || data.nilai > 100) throw new Error("Nilai harus 0..100");
+export async function saveGrade(data: GradeInput): Promise<Grade> {
+  if (!Number.isFinite(data.nilai) || data.nilai < 0 || data.nilai > 100) throw new Error("Nilai harus 0..100");
+  const mata_pelajaran = cleanSubject(data.mata_pelajaran);
+  if (!mata_pelajaran) throw new Error("Mata pelajaran wajib diisi");
+  const [students, categories] = await Promise.all([listStudents(), listCategories()]);
+  if (!students.some((s) => s.id === data.student_id)) throw new Error("Siswa tidak ditemukan");
+  if (!categories.some((c) => c.id === data.category_id)) throw new Error("Jenis nilai tidak ditemukan");
+  return withWriteLock(K.grades, async () => {
   const all = await readList<Grade>(K.grades);
-  const idx = all.findIndex((g) => g.student_id === data.student_id && g.category_id === data.category_id);
+  const idx = all.findIndex((g) => g.student_id === data.student_id && g.category_id === data.category_id
+    && subjectKey(g.mata_pelajaran) === subjectKey(mata_pelajaran));
   if (idx >= 0) {
     all[idx] = { ...all[idx], nilai: data.nilai, updated_at: nowIso() };
   } else {
-    all.push({ id: uid(), ...data, updated_at: nowIso() });
+    all.push({ id: uid(), ...data, mata_pelajaran, updated_at: nowIso() });
   }
   await writeList(K.grades, all);
   return idx >= 0 ? all[idx] : all[all.length - 1];
+  });
 }
 
 export async function updateGrade(id: string, nilai: number): Promise<Grade> {
-  if (nilai < 0 || nilai > 100) throw new Error("Nilai harus 0..100");
+  if (!Number.isFinite(nilai) || nilai < 0 || nilai > 100) throw new Error("Nilai harus 0..100");
+  return withWriteLock(K.grades, async () => {
   const all = await readList<Grade>(K.grades);
   const idx = all.findIndex((g) => g.id === id);
   if (idx < 0) throw new Error("Nilai tidak ditemukan");
   all[idx] = { ...all[idx], nilai, updated_at: nowIso() };
   await writeList(K.grades, all);
   return all[idx];
+  });
 }
 
 export async function deleteGrade(id: string): Promise<void> {
@@ -279,6 +308,7 @@ export async function saveAttendance(data: {
   const status = data.status.toLowerCase().trim() as Attendance["status"];
   if (!["hadir", "sakit", "izin", "alpa"].includes(status)) throw new Error("Status tidak valid");
   if (!data.tanggal || data.tanggal.length !== 10) throw new Error("Tanggal tidak valid");
+  return withWriteLock(K.attendance, async () => {
   const all = await readList<Attendance>(K.attendance);
   const idx = all.findIndex((a) => a.student_id === data.student_id && a.tanggal === data.tanggal);
   if (idx >= 0) {
@@ -288,6 +318,7 @@ export async function saveAttendance(data: {
   }
   await writeList(K.attendance, all);
   return idx >= 0 ? all[idx] : all[all.length - 1];
+  });
 }
 
 export async function attendanceSummary(kelas?: number): Promise<AttendanceSummary> {

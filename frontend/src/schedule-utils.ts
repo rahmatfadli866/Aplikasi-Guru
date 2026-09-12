@@ -33,6 +33,16 @@ export function formatClock(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
+// Student master data uses grades 1–6, not separate classroom sections.
+export function scheduleClassNumber(label: string): number | null {
+  const text = label.trim().replace(/^kelas\s*/i, "");
+  const match = text.match(/^([1-6])(?:\s*[a-z])?$/i);
+  if (match) return Number(match[1]);
+  const romans = ["I", "II", "III", "IV", "V", "VI"];
+  const index = romans.indexOf(text.toUpperCase());
+  return index >= 0 ? index + 1 : null;
+}
+
 export type ScheduleState =
   | { kind: "ongoing"; schedule: Schedule }
   | { kind: "next"; schedule: Schedule }

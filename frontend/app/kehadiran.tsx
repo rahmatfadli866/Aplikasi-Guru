@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,13 +14,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { api, Attendance } from "@/src/api";
 import { useToast } from "@/src/components/toast";
+import { ScheduleContext } from "@/src/components/schedule-context";
+import { useActiveSchedule } from "@/src/hooks/use-active-schedule";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Status = "hadir" | "sakit" | "izin" | "alpa";
 const STATUS_OPTS: { key: Status; label: string; icon: string; color: (c: any) => string; soft: (c: any) => string }[] = [
   { key: "hadir", label: "H", icon: "check", color: (c) => c.success, soft: (c) => c.successSoft },
   { key: "sakit", label: "S", icon: "medical-bag", color: (c) => c.warning, soft: (c) => c.warningSoft },
-  { key: "izin", label: "I", icon: "email-outline", color: (c) => c.info, soft: (c) => "#DBEAFE" },
+  { key: "izin", label: "I", icon: "email-outline", color: (c) => c.info, soft: (c) => c.brandSecondary },
   { key: "alpa", label: "A", icon: "close", color: (c) => c.error, soft: (c) => c.errorSoft },
 ];
 
@@ -56,16 +58,24 @@ export default function KehadiranScreen() {
   const toast = useToast();
   const qc = useQueryClient();
 
-  const [kelas, setKelas] = useState<number>(1);
-  const [tanggal, setTanggal] = useState<string>(todayISO());
+  const params = useLocalSearchParams<{ cepat?: string }>();
+  const quick = params.cepat === "1";
+  const active = useActiveSchedule();
+  const automatic = quick && !!active.schedule && !!active.kelas;
+  const [manualClass, setKelas] = useState<number | null>(quick ? null : 1);
+  const [manualDate, setTanggal] = useState<string>(todayISO());
+  const kelas = automatic ? active.kelas : manualClass;
+  const tanggal = automatic ? todayISO() : manualDate;
 
   const studentsQ = useQuery({
     queryKey: ["students", kelas],
-    queryFn: () => api.listStudents(kelas),
+    queryFn: () => api.listStudents(kelas ?? undefined),
+    enabled: !!kelas && (!quick || !active.isLoading),
   });
   const attQ = useQuery({
     queryKey: ["attendance", kelas, tanggal],
-    queryFn: () => api.listAttendance({ kelas, tanggal }),
+    queryFn: () => api.listAttendance({ kelas: kelas ?? undefined, tanggal }),
+    enabled: !!kelas,
   });
 
   const attMap = useMemo(() => {
@@ -76,7 +86,8 @@ export default function KehadiranScreen() {
 
   const summaryQ = useQuery({
     queryKey: ["attendance", "summary", kelas],
-    queryFn: () => api.attendanceSummary(kelas),
+    queryFn: () => api.attendanceSummary(kelas ?? undefined),
+    enabled: !!kelas,
   });
 
   const saveMut = useMutation({
@@ -91,22 +102,33 @@ export default function KehadiranScreen() {
   const students = studentsQ.data || [];
 
   return (
-    <View style={styles.container}>
+    <View testID="attendance-screen" style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTop}>
-          <Pressable onPress={() => router.back()} hitSlop={12} testID="back-btn">
+          <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/home")} hitSlop={12} testID="back-btn">
             <Icon name="arrow-left" size={24} color={colors.onSurface} />
           </Pressable>
-          <Text style={styles.headerTitle}>Catatan Kehadiran</Text>
+          <Text testID="attendance-title" style={styles.headerTitle}>{quick ? "Input Absensi" : "Catatan Kehadiran"}</Text>
           <View style={{ width: 24 }} />
         </View>
+
+        {quick && !active.isLoading && <View style={styles.context}>
+          <ScheduleContext testID="quick-attendance-context" schedule={active.schedule} kelas={active.kelas} />
+          {automatic && <Pressable testID="attendance-manual" style={styles.manualButton}
+            onPress={() => router.replace("/kehadiran")}>
+            <Text testID="attendance-manual-label" style={styles.todayTxt}>Pilih kelas / tanggal lain</Text>
+          </Pressable>}
+          {active.isError && <Text testID="attendance-schedule-error" style={styles.emptyTxt}>Jadwal tidak terbaca. Pilih kelas secara manual.</Text>}
+        </View>}
 
         {/* Date navigator */}
         <View style={styles.dateRow}>
           <Pressable
             testID="date-prev"
+            disabled={automatic}
+            accessibilityState={{ disabled: automatic }}
             onPress={() => setTanggal((t) => shiftDate(t, -1))}
-            style={styles.dateBtn}
+            style={[styles.dateBtn, automatic && styles.hidden]}
           >
             <Icon name="chevron-left" size={22} color={colors.brandPrimary} />
           </Pressable>
@@ -120,14 +142,16 @@ export default function KehadiranScreen() {
           </View>
           <Pressable
             testID="date-next"
+            disabled={automatic}
+            accessibilityState={{ disabled: automatic }}
             onPress={() => setTanggal((t) => shiftDate(t, 1))}
-            style={styles.dateBtn}
+            style={[styles.dateBtn, automatic && styles.hidden]}
           >
             <Icon name="chevron-right" size={22} color={colors.brandPrimary} />
           </Pressable>
         </View>
 
-        <ScrollView
+        {!automatic && <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipRow}
@@ -138,6 +162,8 @@ export default function KehadiranScreen() {
               <Pressable
                 key={k}
                 testID={`chip-kelas-${k}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
                 onPress={() => setKelas(k)}
                 style={[styles.chip, active && styles.chipActive]}
               >
@@ -145,22 +171,26 @@ export default function KehadiranScreen() {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </ScrollView>}
+        <Text testID="attendance-class-label" style={styles.selectedClass}>{kelas ? `Daftar siswa Kelas ${kelas}` : "Pilih kelas untuk mulai mengisi absensi"}</Text>
+        <Text testID="attendance-legend" style={styles.legend}>H: Hadir · S: Sakit · I: Izin · A: Alpa</Text>
+        {saveMut.isPending && <ActivityIndicator testID="attendance-saving" size="small" color={colors.brandPrimary} />}
       </View>
 
-      {studentsQ.isLoading && (
-        <View style={styles.center}><ActivityIndicator color={colors.brandPrimary} /></View>
+      {(studentsQ.isLoading || (quick && active.isLoading)) && (
+        <View style={styles.center}><ActivityIndicator testID="attendance-loading" color={colors.brandPrimary} /></View>
       )}
 
-      {!studentsQ.isLoading && students.length === 0 ? (
+      {!!kelas && !studentsQ.isLoading && students.length === 0 ? (
         <View style={styles.center}>
           <Icon name="account-multiple-outline" size={56} color={colors.muted} />
-          <Text style={styles.emptyTxt}>Belum ada siswa di Kelas {kelas}</Text>
+          <Text testID="attendance-no-students" style={styles.emptyTxt}>Belum ada siswa di Kelas {kelas}</Text>
           <Text style={[styles.emptyTxt, { fontSize: 12 }]}>Tambahkan siswa lewat Master Data</Text>
         </View>
       ) : null}
 
       <FlatList
+        testID="attendance-students"
         data={students}
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) + 16 }}
@@ -175,13 +205,13 @@ export default function KehadiranScreen() {
                   <Text style={styles.avatarTxt}>{index + 1}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.nameTxt} numberOfLines={1}>{item.nama}</Text>
+                  <Text testID={`attendance-name-${item.id}`} style={styles.nameTxt} numberOfLines={1}>{item.nama}</Text>
                   {summary ? (
-                    <Text style={styles.summaryTxt}>
+                    <Text testID={`attendance-summary-${item.id}`} style={styles.summaryTxt}>
                       H {summary.hadir} · S {summary.sakit} · I {summary.izin} · A {summary.alpa}
                     </Text>
                   ) : (
-                    <Text style={styles.summaryTxt}>Belum ada riwayat</Text>
+                    <Text testID={`attendance-summary-${item.id}`} style={styles.summaryTxt}>Belum ada riwayat</Text>
                   )}
                 </View>
               </View>
@@ -192,6 +222,9 @@ export default function KehadiranScreen() {
                     <Pressable
                       key={opt.key}
                       testID={`status-${item.id}-${opt.key}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${item.nama}: ${opt.key}`}
+                      accessibilityState={{ selected: isSel }}
                       onPress={() => saveMut.mutate({ student_id: item.id, status: opt.key })}
                       style={[
                         styles.statusBtn,
@@ -235,13 +268,18 @@ const useStyles = makeStyles((colors) => ({
   },
   headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8 },
   headerTitle: { fontSize: 18, fontWeight: "800", color: colors.onSurface },
+  context: { marginBottom: 12 },
+  manualButton: { minHeight: 44, justifyContent: "center", alignItems: "center" },
+  hidden: { opacity: 0 },
+  selectedClass: { fontSize: 14, fontWeight: "700", color: colors.brandPrimary, marginTop: 12 },
+  legend: { fontSize: 12, color: colors.muted, marginTop: 6 },
 
   dateRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     backgroundColor: colors.brandTertiary, borderRadius: 14, padding: 8, marginBottom: 10,
   },
   dateBtn: {
-    width: 40, height: 40, borderRadius: 10,
+    width: 44, height: 44, borderRadius: 10,
     backgroundColor: colors.surfaceSecondary,
     alignItems: "center", justifyContent: "center",
   },
@@ -251,7 +289,7 @@ const useStyles = makeStyles((colors) => ({
 
   chipRow: { gap: 8, paddingRight: 8 },
   chip: {
-    height: 36, paddingHorizontal: 14, borderRadius: 999,
+    height: 44, paddingHorizontal: 14, borderRadius: 999,
     backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.border,
     alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
@@ -279,7 +317,7 @@ const useStyles = makeStyles((colors) => ({
 
   statusRow: { flexDirection: "row", gap: 8 },
   statusBtn: {
-    flex: 1, minHeight: 40, borderRadius: 10,
+    flex: 1, minHeight: 44, borderRadius: 10,
     alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
     borderWidth: 1.5,
   },
