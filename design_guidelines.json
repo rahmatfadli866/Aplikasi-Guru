@@ -1,0 +1,168 @@
+{
+  "app_name": "Sistem Manajemen Nilai Siswa",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A highly professional, highly readable, and native-feeling gradebook interface designed for Indonesian teachers, prioritizing data clarity over visual noise.",
+  "color": {
+    "surface": "#F9FAFB",
+    "onSurface": "#111827",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1F2937",
+    "surfaceTertiary": "#F3F4F6",
+    "onSurfaceTertiary": "#374151",
+    "surfaceInverse": "#111827",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#2563EB",
+    "brandPrimary": "#1D4ED8",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#DBEAFE",
+    "onBrandSecondary": "#1E40AF",
+    "brandTertiary": "#EFF6FF",
+    "onBrandTertiary": "#1D4ED8",
+    "success": "#059669",
+    "onSuccess": "#FFFFFF",
+    "warning": "#D97706",
+    "onWarning": "#FFFFFF",
+    "error": "#DC2626",
+    "onError": "#FFFFFF",
+    "info": "#0284C7",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7EB",
+    "borderStrong": "#D1D5DB",
+    "divider": "#F3F4F6",
+    "muted": "#6B7280",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room for forms, tight alignment for tabular data. Maintain intentional padding around cards.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Apply glass effect to bottom tab bar and sticky headers over scrolling content.",
+      "Use glass on the Export Bottom Sheet overlay."
+    ],
+    "dont's": [
+      "Never blur the data table cells or input forms."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "Dashboard showing teacher profile card, quick statistical summaries, and fast navigation to inputs.",
+      "states": {
+        "loading": "Skeleton profile card and stat tiles.",
+        "empty": "Not applicable.",
+        "error": "Error loading stats with a retry button."
+      },
+      "layout": "Scrollable feed. Top safe area followed by a Hero Profile Card (Brand Tertiary tinted with teacher avatar and details). Below it, a 2-column grid of Quick Stats (Total Siswa, Kelas Aktif). Followed by large touch-target shortcut cards for 'Input Nilai' and 'Lihat Rekap'."
+    },
+    {
+      "name": "Master Data",
+      "purpose": "Manage student data (CRUD) and grade categories.",
+      "states": {
+        "loading": "Centered spinner.",
+        "empty": "Full screen centered empty state using the 'stack of notebooks' image, text 'Belum ada data', and a primary CTA 'Tambah Data'.",
+        "error": "Readable error message with Retry button."
+      },
+      "layout": "Sticky top segmented control (Siswa / Kategori). List view of items. Use a sticky primary CTA at the bottom ('Tambah Siswa' / 'Tambah Kategori') over the scrollable list for easy access."
+    },
+    {
+      "name": "Input Nilai",
+      "purpose": "Step-by-step or dependent dropdown form to submit grades.",
+      "states": {
+        "loading": "Centered spinner.",
+        "empty": "Illustration indicating 'Pilih kelas terlebih dahulu'.",
+        "error": "Error submitting grade, retry prompt."
+      },
+      "layout": "Single column form. Labels above inputs. Dropdowns for Kelas -> Siswa -> Kategori. Large numeric input for the grade (0-100). The 'Simpan' (Save) button must be sticky at the bottom inside KeyboardAvoidingView."
+    },
+    {
+      "name": "Rekap",
+      "purpose": "Interactive, filterable data table for reviewing and exporting grades.",
+      "states": {
+        "loading": "Skeleton table rows.",
+        "empty": "Select a class to view records.",
+        "error": "Failed to load records."
+      },
+      "layout": "Top row of scrollable filter chips for Classes. Below is the Data Table: Use a horizontal scroll container where the first column (Nama Siswa) is sticky/frozen. Apply conditional formatting to the 'Rata-rata' and score columns: Text color 'success' with a check/smile icon if >75, text color 'error' or 'warning' if <=75. Include a floating action button or top-right header icon for 'Export' which opens a bottom sheet (PDF, Excel, Print)."
+    },
+    {
+      "name": "Pengaturan",
+      "purpose": "Edit teacher profile details.",
+      "states": {
+        "loading": "Skeleton form.",
+        "empty": "Not applicable.",
+        "error": "Failed to save profile."
+      },
+      "layout": "Native-style grouped settings list. Input fields for Nama, NIP, and Mata Pelajaran. A sticky 'Simpan Profil' CTA at the bottom."
+    }
+  ],
+  "images": {
+    "teacher_avatar_placeholder": {
+      "url": "https://images.unsplash.com/photo-1758685847967-c598c3b176b0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHx5b3VuZyUyMHRlYWNoZXIlMjBzbWlsaW5nJTIwcHJvZmVzc2lvbmFsJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzg5MTkyMDMzfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Teacher profile portrait"
+    },
+    "home_hero_bg": {
+      "url": "https://images.unsplash.com/photo-1639548538099-6f7f9aec3b92?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBzY2hvb2wlMjBjbGFzc3Jvb20lMjBiYWNrZ3JvdW5kJTIwYmx1cnxlbnwwfHx8fDE3ODkxOTIwMzN8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern classroom background"
+    },
+    "empty_data": {
+      "url": "https://images.unsplash.com/photo-1659633528248-a4de143eef8d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxzdGFjayUyMG9mJTIwbm90ZWJvb2tzJTIwZW1wdHklMjBkZXNrfGVufDB8fHx8MTc4OTE5MjAzM3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Stack of notebooks indicating empty data"
+    }
+  },
+  "haptics": {
+    "tab_press": "light",
+    "button_primary_press": "medium",
+    "dropdown_select": "light",
+    "grade_save_success": "notification_success",
+    "export_trigger": "medium"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the color palette. Since the user requested 'Biru edukasi modern dengan aksen hijau', the blue tokens (#2563EB) and green success tokens (#059669) are permitted overrides to the NO BLUE rule.",
+    "For the Rekap (Data Table) screen, implement a horizontally scrollable table layout where the first column (Nama Siswa) remains sticky/frozen. This is crucial for mobile gradebooks.",
+    "Implement conditional formatting in the Rekap table: if a score is > 75, render the text in `success` color and append a small check/smile icon. If <= 75, use `warning` or `error` color.",
+    "Input Nilai screen must use a step-by-step dependent dropdown logic (Kelas -> Siswa -> Kategori). Ensure the 'Simpan' CTA is sticky at the bottom.",
+    "Home screen must have a Hero Card featuring the teacher's profile (Nama, NIP, Mata Pelajaran), utilizing the `home_hero_bg` with a gradient scrim to ensure text readability.",
+    "Use Phosphor icons consistently across the app. Ensure they are sized appropriately (e.g., 24pt for tab bar, 20pt for inline table icons)."
+  ]
+}
