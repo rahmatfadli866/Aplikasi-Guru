@@ -2,11 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Easing, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { api } from "@/src/api";
 import { makeStyles, useTheme } from "@/src/theme";
+import {
+  formatClock,
+  formatFullDate,
+  resolveCurrentSchedule,
+  type ScheduleState,
+} from "@/src/schedule-utils";
 
 const HERO_BG =
   "https://images.unsplash.com/photo-1639548538099-6f7f9aec3b92?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBzY2hvb2wlMjBjbGFzc3Jvb20lMjBiYWNrZ3JvdW5kJTIwYmx1cnxlbnwwfHx8fDE3ODkxOTIwMzN8MA&ixlib=rb-4.1.0&q=85";
@@ -18,10 +25,19 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const teacherQ = useQuery({ queryKey: ["teacher"], queryFn: api.getTeacher });
-  const statsQ = useQuery({ queryKey: ["stats"], queryFn: api.getStats });
+  const schedulesQ = useQuery({ queryKey: ["schedules"], queryFn: () => api.listSchedules() });
 
   const teacher = teacherQ.data;
-  const stats = statsQ.data;
+  const schedules = schedulesQ.data ?? [];
+
+  // Live clock — update setiap detik untuk cek jam perangkat real-time.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const state = resolveCurrentSchedule(schedules, now);
 
   return (
     <View style={styles.container}>
@@ -76,30 +92,13 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard} testID="stat-siswa">
-            <View style={[styles.statIcon, { backgroundColor: colors.brandTertiary }]}>
-              <Icon name="account-group" size={22} color={colors.brandPrimary} />
-            </View>
-            <Text style={styles.statValue}>{stats?.total_students ?? 0}</Text>
-            <Text style={styles.statLabel}>Total Siswa</Text>
-          </View>
-          <View style={styles.statCard} testID="stat-kelas">
-            <View style={[styles.statIcon, { backgroundColor: colors.successSoft }]}>
-              <Icon name="school" size={22} color={colors.success} />
-            </View>
-            <Text style={styles.statValue}>{stats?.kelas_aktif ?? 0}</Text>
-            <Text style={styles.statLabel}>Kelas Aktif</Text>
-          </View>
-          <View style={styles.statCard} testID="stat-nilai">
-            <View style={[styles.statIcon, { backgroundColor: colors.warningSoft }]}>
-              <Icon name="clipboard-list" size={22} color={colors.warning} />
-            </View>
-            <Text style={styles.statValue}>{stats?.total_grades ?? 0}</Text>
-            <Text style={styles.statLabel}>Total Nilai</Text>
-          </View>
-        </View>
+        {/* Jadwal Mengajar Saat Ini */}
+        <ScheduleCard
+          state={state}
+          now={now}
+          loading={schedulesQ.isLoading}
+          onManage={() => router.push("/jadwal")}
+        />
 
         {/* Shortcuts */}
         <Text style={styles.sectionTitle}>Aksi Cepat</Text>
@@ -158,6 +157,112 @@ export default function HomeScreen() {
   );
 }
 
+function ScheduleCard({
+  state,
+  now,
+  loading,
+  onManage,
+}: {
+  state: ScheduleState;
+  now: Date;
+  loading: boolean;
+  onManage: () => void;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  const ongoing = state.kind === "ongoing";
+
+  useEffect(() => {
+    if (!ongoing) {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [ongoing, pulse]);
+
+  const dotOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.25] });
+
+  return (
+    <View style={styles.schedCard} testID="jadwal-card">
+      <View style={styles.schedHeaderRow}>
+        <View style={styles.schedHeaderLeft}>
+          <View style={styles.schedIcon}>
+            <Icon name="calendar-clock" size={20} color={colors.brandPrimary} />
+          </View>
+          <Text style={styles.schedTitle}>Jadwal Mengajar Saat Ini</Text>
+        </View>
+      </View>
+
+      <View style={styles.schedDateRow}>
+        <Text style={styles.schedDate} testID="jadwal-tanggal">{formatFullDate(now)}</Text>
+        <View style={styles.clockPill}>
+          <Icon name="clock-outline" size={13} color={colors.brandPrimary} />
+          <Text style={styles.clockText} testID="jadwal-jam-sekarang">{formatClock(now)}</Text>
+        </View>
+      </View>
+
+      <View style={styles.schedDivider} />
+
+      {loading ? (
+        <Text style={styles.schedEmpty}>Memuat jadwal…</Text>
+      ) : state.kind === "done" ? (
+        <View style={styles.schedDone} testID="jadwal-selesai">
+          <Icon name="coffee" size={30} color={colors.success} />
+          <Text style={styles.schedDoneText}>
+            Jadwal hari ini telah selesai.{"\n"}Selamat beristirahat!
+          </Text>
+        </View>
+      ) : (
+        <View>
+          {ongoing ? (
+            <View style={[styles.statusChip, { backgroundColor: colors.successSoft }]} testID="jadwal-status-berlangsung">
+              <Animated.View style={[styles.liveDot, { opacity: dotOpacity }]} />
+              <Text style={[styles.statusText, { color: colors.success }]}>Sedang Berlangsung</Text>
+            </View>
+          ) : (
+            <View style={[styles.statusChip, { backgroundColor: colors.brandTertiary }]} testID="jadwal-status-selanjutnya">
+              <Icon name="arrow-right-circle" size={14} color={colors.brandPrimary} />
+              <Text style={[styles.statusText, { color: colors.brandPrimary }]}>Selanjutnya</Text>
+            </View>
+          )}
+
+          <Text style={styles.schedMapel} numberOfLines={2} testID="jadwal-mapel">
+            {state.schedule.mata_pelajaran}
+          </Text>
+
+          <View style={styles.schedMetaRow}>
+            <View style={styles.schedMetaItem}>
+              <Icon name="clock-time-four-outline" size={16} color={colors.muted} />
+              <Text style={styles.schedMetaText} testID="jadwal-waktu">
+                {state.schedule.jam_mulai} – {state.schedule.jam_selesai}
+              </Text>
+            </View>
+            <View style={styles.schedMetaItem}>
+              <Icon name="google-classroom" size={16} color={colors.muted} />
+              <Text style={styles.schedMetaText} testID="jadwal-kelas">{state.schedule.kelas}</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      <Pressable style={styles.schedManage} onPress={onManage} testID="jadwal-manage-btn">
+        <Icon name="cog-outline" size={15} color={colors.brandPrimary} />
+        <Text style={styles.schedManageText}>Atur Jadwal Mengajar</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const useStyles = makeStyles((colors) => ({
   container: { flex: 1, backgroundColor: colors.surface },
   heroWrap: {
@@ -187,18 +292,58 @@ const useStyles = makeStyles((colors) => ({
   heroInfoValue: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
 
   statsRow: { flexDirection: "row", gap: 12, paddingHorizontal: 16, marginTop: 16 },
-  statCard: {
-    flex: 1,
+  statIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+
+  schedCard: {
+    marginHorizontal: 16,
+    marginTop: 16,
     backgroundColor: colors.surfaceSecondary,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: colors.border,
-    alignItems: "flex-start",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  statIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  statValue: { fontSize: 22, fontWeight: "800", color: colors.onSurface },
-  statLabel: { fontSize: 11, color: colors.muted, marginTop: 2, fontWeight: "500" },
+  schedHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  schedHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  schedIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: colors.brandTertiary,
+    alignItems: "center", justifyContent: "center",
+  },
+  schedTitle: { fontSize: 15, fontWeight: "800", color: colors.onSurface, flexShrink: 1 },
+  schedDateRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14 },
+  schedDate: { fontSize: 13, fontWeight: "600", color: colors.onSurfaceSecondary, flexShrink: 1 },
+  clockPill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: colors.brandTertiary,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
+  },
+  clockText: { fontSize: 13, fontWeight: "700", color: colors.brandPrimary, fontVariant: ["tabular-nums"] },
+  schedDivider: { height: 1, backgroundColor: colors.divider, marginVertical: 14 },
+  statusChip: {
+    flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
+  },
+  liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.success },
+  statusText: { fontSize: 12, fontWeight: "800", letterSpacing: 0.2 },
+  schedMapel: { fontSize: 20, fontWeight: "800", color: colors.onSurface, marginTop: 12 },
+  schedMetaRow: { flexDirection: "row", flexWrap: "wrap", gap: 18, marginTop: 10 },
+  schedMetaItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  schedMetaText: { fontSize: 14, fontWeight: "600", color: colors.onSurfaceSecondary },
+  schedEmpty: { fontSize: 14, color: colors.muted, paddingVertical: 12, textAlign: "center" },
+  schedDone: { alignItems: "center", gap: 10, paddingVertical: 10 },
+  schedDoneText: { fontSize: 14, fontWeight: "600", color: colors.onSurfaceSecondary, textAlign: "center", lineHeight: 20 },
+  schedManage: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    marginTop: 16, paddingTop: 14,
+    borderTopWidth: 1, borderTopColor: colors.divider,
+  },
+  schedManageText: { fontSize: 13, fontWeight: "700", color: colors.brandPrimary },
 
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.onSurface, paddingHorizontal: 16, marginTop: 24, marginBottom: 12 },
   shortcuts: { flexDirection: "row", gap: 12, paddingHorizontal: 16 },

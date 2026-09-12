@@ -9,6 +9,7 @@ export type {
   Category,
   Grade,
   Attendance,
+  Schedule,
   AttendanceSummary,
   Stats,
 } from "@/src/local-store";
@@ -43,6 +44,13 @@ export const api = {
   attendanceSummary: (kelas?: number) => local.attendanceSummary(kelas),
 
   getStats: () => local.getStats(),
+
+  listSchedules: (hari?: number) => local.listSchedules(hari),
+  createSchedule: (data: { hari: number; jam_mulai: string; jam_selesai: string; mata_pelajaran: string; kelas: string }) =>
+    local.createSchedule(data),
+  updateSchedule: (id: string, data: { hari: number; jam_mulai: string; jam_selesai: string; mata_pelajaran: string; kelas: string }) =>
+    local.updateSchedule(id, data),
+  deleteSchedule: (id: string) => local.deleteSchedule(id).then(() => ({ ok: true as const })),
 
   // Photo path is now a local file:// URI or data: URL — return it as-is for <Image />.
   fileUrl: (path: string) => path || "",

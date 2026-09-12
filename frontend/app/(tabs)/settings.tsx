@@ -210,6 +210,21 @@ export default function SettingsScreen() {
           <Text style={styles.section}>DATA APLIKASI</Text>
           <View style={styles.card}>
             <Pressable
+              testID="row-jadwal"
+              style={styles.row}
+              onPress={() => router.push("/jadwal")}
+            >
+              <View style={[styles.rowIcon, { backgroundColor: colors.successSoft }]}>
+                <Icon name="calendar-clock" size={20} color={colors.success} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>Pengaturan Jadwal Mengajar</Text>
+                <Text style={styles.rowSub}>Kelola jadwal pelajaran mingguan</Text>
+              </View>
+              <Icon name="chevron-right" size={22} color={colors.muted} />
+            </Pressable>
+            <View style={styles.sep} />
+            <Pressable
               testID="row-master"
               style={styles.row}
               onPress={() => router.push("/master")}

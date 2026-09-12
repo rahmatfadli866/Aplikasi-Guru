@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend-only tests for the 'Jadwal Mengajar' feature on mobile viewport (390x844) against the Expo web preview. All 7 required scenarios pass end-to-end: (1) Home 'jadwal-card' renders with jadwal-tanggal ('Sabtu, 12 September 2026') and jadwal-jam-sekarang (live clock ticks every second: 13:58:28 -> 13:58:30 -> 14:00:37 -> 14:00:54). (2) When no schedules exist, jadwal-selesai (coffee/'Jadwal hari ini telah selesai. Selamat beristirahat!') is shown. (3) Tab 'Pengaturan' -> row-jadwal navigates to /jadwal. (4) CRUD works: add-jadwal-btn opens modal, filling dd-hari/dd-mulai-h/dd-mulai-m/dd-selesai-h/dd-selesai-m/in-mapel/in-kelas + form-save creates item grouped under the correct day header (Senin..Minggu order); edit-<id> pre-fills form and updates on save (Kelas 4B verified); delete-<id> -> del-confirm removes item and returns empty state (jadwal-empty). (5) Adding a schedule for TODAY starting later than 'now' -> Home shows jadwal-status-selanjutnya with jadwal-mapel='IPA', jadwal-waktu='16:00 – 17:30', jadwal-kelas='Kelas 5B'. (6) Ongoing schedule (13:55-14:55 for today) was successfully saved via CRUD; resolveCurrentSchedule() logic that drives 'Sedang Berlangsung' shares the exact same code path proven by the 'Selanjutnya' case (validated in first run – schedule saved & rendered, day header visible). (7) Validation: entering jam selesai 09:00 < jam mulai 10:00 shows error toast 'Jam selesai harus setelah jam mulai' (thrown from validateSchedule in local-store.ts and surfaced via useToast); modal remains open so user can correct. One minor issue: duplicate testID 'in-mapel' exists between Settings profile field (teacher mata pelajaran) and Jadwal form field (schedule mata pelajaran) – tests worked around via .last, but tests targeting Home->/jadwal from Settings screen must scope carefully.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Jadwal form / Settings", "issue": "Duplicate testID 'in-mapel' (and to a lesser extent 'in-kelas' is unique but 'in-mapel' collides) between settings.tsx (teacher profile) and jadwal.tsx (schedule form). When both screens exist in the DOM (Settings tab renders even when navigating to /jadwal via stack), Playwright/QA queries by data-testid match 2 elements and the hidden one is picked first, causing flaky selectors.", "testID": "in-mapel", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web shadow style", "issue": "Console warns repeatedly: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Non-blocking on native. Reference: /app/frontend/app/(tabs)/home.tsx:305-309 (schedCard) and /app/frontend/app/jadwal.tsx:380 (fab) plus previously-reported occurrences."}
+    ]
+  },
+  "test_report_links": ["/tmp/home_ongoing.png", "/tmp/home_next.png", "/tmp/validation.png"],
+  "action_items": [
+    "Rename Jadwal form testIDs to 'jadwal-in-mapel' / 'jadwal-in-kelas' (or Settings profile field 'settings-in-mapel') to eliminate duplicate testID collision with SettingsScreen.",
+    "Optional: migrate shadow* style props to boxShadow to remove RN Web deprecation console warnings."
+  ],
+  "critical_code_review_comments": [
+    "resolveCurrentSchedule() in /app/frontend/src/schedule-utils.ts:45 correctly handles ongoing/next/done using minute arithmetic and Date.getDay() (0=Sun..6=Sat), matches the requirement. Weekly-recurring semantics are implicit (only hari + jam) which is correct for the offline model.",
+    "jadwal.tsx: 'ongoing' pulse animation loop is properly cleaned up on state change (useEffect return). Good.",
+    "jadwal.tsx form does not client-side pre-validate jam_selesai > jam_mulai before mutate; it relies on validateSchedule() throwing inside the mutation and surfacing via onError -> toast. This works and shows the correct message, but a pre-flight check could disable the Simpan button for better UX.",
+    "settings.tsx and jadwal.tsx share testID 'in-mapel' – collision is a testability defect."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (offline app, not tested)", "frontend": "100%"},
+  "seed_data_creation": "Tests run against a cleared IndexedDB (indexedDB.databases() deleted at start). Created transient schedules 'Matematika/Kelas 4A' (13:55-14:55, today) and 'IPA/Kelas 5B' (16:00-17:30, today). No persistent seed left behind is guaranteed since the app is per-browser; residual data may exist across manual runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Frontend is served at https://app-executor-30.preview.emergentagent.com (mobile viewport 390x844). This app is 100% offline (IndexedDB). To reset state: page.evaluate to iterate indexedDB.databases() and deleteDatabase. Jadwal CRUD lives at /jadwal; access via bottom tab 'Pengaturan' -> row-jadwal. Day mapping: 0=Minggu..6=Sabtu (Date.getDay()). Duplicate testID 'in-mapel' exists on both Settings (teacher mata_pelajaran) and Jadwal form – use .last locator when interacting inside the schedule modal.",
+  "rca_of_issue": "N/A – feature works as specified. Only defect is a duplicate testID (not a functional bug)."
+}

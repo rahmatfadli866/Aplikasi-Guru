@@ -10,6 +10,7 @@ const K = {
   categories: "smns:categories",
   grades: "smns:grades",
   attendance: "smns:attendance",
+  schedules: "smns:schedules",
   initialized: "smns:initialized",
 };
 
@@ -59,6 +60,17 @@ export type Attendance = {
   tanggal: string;
   status: "hadir" | "sakit" | "izin" | "alpa";
   updated_at: string;
+};
+// hari: 0=Minggu, 1=Senin, ... 6=Sabtu (selaras dengan Date.getDay())
+// jam_mulai / jam_selesai: format "HH:MM" (24 jam)
+export type Schedule = {
+  id: string;
+  hari: number;
+  jam_mulai: string;
+  jam_selesai: string;
+  mata_pelajaran: string;
+  kelas: string;
+  created_at: string;
 };
 export type Stats = { total_students: number; kelas_aktif: number; total_grades: number; total_categories: number };
 export type AttendanceSummary = Record<
@@ -308,6 +320,73 @@ export async function getStats(): Promise<Stats> {
     total_grades: gs.length,
     total_categories: cs.length,
   };
+}
+
+// ---- Schedules (Jadwal Mengajar) ----
+function timeToMin(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map((x) => parseInt(x, 10));
+  return (h || 0) * 60 + (m || 0);
+}
+
+export async function listSchedules(hari?: number): Promise<Schedule[]> {
+  const all = await readList<Schedule>(K.schedules);
+  const filtered = hari === undefined ? all : all.filter((s) => s.hari === hari);
+  return [...filtered].sort(
+    (a, b) => a.hari - b.hari || timeToMin(a.jam_mulai) - timeToMin(b.jam_mulai),
+  );
+}
+
+function validateSchedule(data: { hari: number; jam_mulai: string; jam_selesai: string; mata_pelajaran: string; kelas: string }) {
+  if (data.hari < 0 || data.hari > 6) throw new Error("Hari tidak valid");
+  if (!/^\d{2}:\d{2}$/.test(data.jam_mulai) || !/^\d{2}:\d{2}$/.test(data.jam_selesai))
+    throw new Error("Format jam harus HH:MM");
+  if (timeToMin(data.jam_selesai) <= timeToMin(data.jam_mulai))
+    throw new Error("Jam selesai harus setelah jam mulai");
+  if (!data.mata_pelajaran.trim()) throw new Error("Mata pelajaran wajib diisi");
+  if (!data.kelas.trim()) throw new Error("Kelas wajib diisi");
+}
+
+export async function createSchedule(data: {
+  hari: number; jam_mulai: string; jam_selesai: string; mata_pelajaran: string; kelas: string;
+}): Promise<Schedule> {
+  validateSchedule(data);
+  const all = await readList<Schedule>(K.schedules);
+  const s: Schedule = {
+    id: uid(),
+    hari: data.hari,
+    jam_mulai: data.jam_mulai,
+    jam_selesai: data.jam_selesai,
+    mata_pelajaran: data.mata_pelajaran.trim(),
+    kelas: data.kelas.trim(),
+    created_at: nowIso(),
+  };
+  all.push(s);
+  await writeList(K.schedules, all);
+  return s;
+}
+
+export async function updateSchedule(id: string, data: {
+  hari: number; jam_mulai: string; jam_selesai: string; mata_pelajaran: string; kelas: string;
+}): Promise<Schedule> {
+  validateSchedule(data);
+  const all = await readList<Schedule>(K.schedules);
+  const idx = all.findIndex((s) => s.id === id);
+  if (idx < 0) throw new Error("Jadwal tidak ditemukan");
+  all[idx] = {
+    ...all[idx],
+    hari: data.hari,
+    jam_mulai: data.jam_mulai,
+    jam_selesai: data.jam_selesai,
+    mata_pelajaran: data.mata_pelajaran.trim(),
+    kelas: data.kelas.trim(),
+  };
+  await writeList(K.schedules, all);
+  return all[idx];
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const all = await readList<Schedule>(K.schedules);
+  await writeList(K.schedules, all.filter((s) => s.id !== id));
 }
 
 // ---- Reset (danger) ----
